@@ -31,8 +31,13 @@ local trollTargetName = nil
 local trollConn
 
 local FlingActive = false
-local flingTargetName = nil
+local flingSingleTarget = nil
+local flingMultiTargets = {}
 local flingMode = "Single"
+
+local counterESPEnabled = false
+local counterConn
+local counterHighlights = {}
 
 --// GET HRP
 local function getTrollTargetHRP()
@@ -58,6 +63,49 @@ local function getPlayerList()
     return list
 end
 
+local function hasCounter(model)
+    if model:FindFirstChild("Counter", true) then
+        return true
+    end
+    return false
+end
+
+--// GET HRP 
+local function getHRP()
+	local char = player.Character or player.CharacterAdded:Wait()
+	return char:WaitForChild("HumanoidRootPart")
+end
+
+--// AUTO UPDATE PLAYER LIST
+local function refreshPlayers()
+    local list = getPlayerList()
+    TrollDropdown:SetValues(list)
+    FlingSingleDropdown:SetValues(list)
+    FlingMultiDropdown:SetValues(list)
+end
+
+local function addHighlight(model)
+    if counterHighlights[model] then return end
+
+    local hl = Instance.new("Highlight")
+    hl.FillColor = Color3.fromRGB(255, 0, 0)
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.FillTransparency = 0.3
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = model
+    hl.Parent = model
+
+    counterHighlights[model] = hl
+end
+
+local function removeHighlight(model)
+    if counterHighlights[model] then
+        counterHighlights[model]:Destroy()
+        counterHighlights[model] = nil
+    end
+end
+
 --// DROPDOWN TROLL
 local TrollDropdown = Tabs.Main:AddDropdown("TrollPlayer", {
     Title = "Troll Target",
@@ -75,15 +123,26 @@ local TrollToggle = Tabs.Main:AddToggle("Troll", {
     Default = false
 })
 
---// DROPDOWN FLING
-local FlingDropdown = Tabs.Main:AddDropdown("FlingPlayer", {
-    Title = "Fling Target",
+--// SINGLE TARGET
+local FlingSingleDropdown = Tabs.Main:AddDropdown("FlingSingle", {
+    Title = "Fling Single Target",
     Values = getPlayerList(),
     Multi = false,
     Default = nil
 })
-FlingDropdown:OnChanged(function(val)
-    flingTargetName = val
+FlingSingleDropdown:OnChanged(function(val)
+    flingSingleTarget = val
+end)
+
+--// MULTI TARGET
+local FlingMultiDropdown = Tabs.Main:AddDropdown("FlingMulti", {
+    Title = "Fling Multi Target",
+    Values = getPlayerList(),
+    Multi = true,
+    Default = {}
+})
+FlingMultiDropdown:OnChanged(function(val)
+    flingMultiTargets = val -- table
 end)
 
 local ModeDropdown = Tabs.Main:AddDropdown("FlingMode", {
@@ -96,32 +155,13 @@ ModeDropdown:OnChanged(function(val)
     flingMode = val
 end)
 
---// AUTO UPDATE PLAYER LIST
-local function refreshPlayers()
-    local list = getPlayerList()
-    TrollDropdown:SetValues(list)
-    FlingDropdown:SetValues(list)
-end
+local CounterToggle = Tabs.Main:AddToggle("CounterESP", {
+    Title = "Detect Counter Enemy 🔴",
+    Default = false
+})
 
 Players.PlayerAdded:Connect(refreshPlayers)
 Players.PlayerRemoving:Connect(refreshPlayers)
-
---// TARGET HRP
-local function getTargetHRP()
-    local target = Players:FindFirstChild(selectedPlayerName)
-    if not target then return end
-
-    local char = target.Character
-    if not char then return end
-
-    return char:FindFirstChild("HumanoidRootPart")
-end
-
---// GET HRP 
-local function getHRP()
-	local char = player.Character or player.CharacterAdded:Wait()
-	return char:WaitForChild("HumanoidRootPart")
-end
 
 --// TROLL LOOP (DI BELAKANG TARGET)
 local function startTroll()
@@ -262,6 +302,50 @@ local function SkidFling(TargetPlayer)
     end
 end
 
+local function startCounterESP()
+    if counterConn then return end
+
+    counterConn = RunService.Heartbeat:Connect(function()
+        if not counterESPEnabled then return end
+
+        local liveFolder = workspace:FindFirstChild("Live")
+        if not liveFolder then return end
+
+        for _, model in pairs(liveFolder:GetChildren()) do
+    		if model:IsA("Model") then
+        		if model ~= player.Character then
+            		if hasCounter(model) then
+                		addHighlight(model)
+            		else
+                		removeHighlight(model)
+            		end
+        		end
+    		end
+		end
+
+        -- cleanup kalau model hilang
+        for model, _ in pairs(counterHighlights) do
+            if not model or not model.Parent then
+                removeHighlight(model)
+            end
+        end
+    end)
+end
+
+local function stopCounterESP()
+    counterESPEnabled = false
+
+    if counterConn then
+        counterConn:Disconnect()
+        counterConn = nil
+    end
+
+    -- hapus semua highlight
+    for model, _ in pairs(counterHighlights) do
+        removeHighlight(model)
+    end
+end
+
 --// FLING BUTTON
 Tabs.Main:AddButton({
     Title = "Fling Target 😈",
@@ -269,8 +353,8 @@ Tabs.Main:AddButton({
     Callback = function()
 
         if flingMode == "Single" then
-            if flingTargetName then
-                local target = Players:FindFirstChild(flingTargetName)
+            if flingSingleTarget then
+                local target = Players:FindFirstChild(flingSingleTarget)
                 if target then
                     SkidFling(target)
                 end
@@ -282,23 +366,34 @@ Tabs.Main:AddButton({
 
             task.spawn(function()
                 while FlingActive do
-                    for _, p in pairs(Players:GetPlayers()) do
-                        if p ~= player then
-                            SkidFling(p)
-                            task.wait(0.1)
+                    for name, _ in pairs(flingMultiTargets) do
+                        local target = Players:FindFirstChild(name)
+                        if target then
+                            task.spawn(function()
+                                SkidFling(target)
+                            end)
                         end
                     end
-                    task.wait(0.3)
+                    task.wait(0.5)
                 end
             end)
 
-            -- AUTO STOP setelah beberapa detik (biar gak infinite)
             task.delay(5, function()
                 FlingActive = false
             end)
         end
     end
 })
+
+CounterToggle:OnChanged(function(v)
+    counterESPEnabled = v
+
+    if v then
+        startCounterESP()
+    else
+        stopCounterESP()
+    end
+end)
 
 --// NOTIF
 Fluent:Notify({
