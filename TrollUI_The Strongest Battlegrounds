@@ -108,8 +108,6 @@ Players.PlayerRemoving:Connect(refreshPlayers)
 
 --// TARGET HRP
 local function getTargetHRP()
-    if not selectedPlayerName then return end
-
     local target = Players:FindFirstChild(selectedPlayerName)
     if not target then return end
 
