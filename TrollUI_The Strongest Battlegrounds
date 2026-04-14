@@ -39,6 +39,10 @@ local counterESPEnabled = false
 local counterConn
 local counterHighlights = {}
 
+local hunterESPEnabled = false
+local hunterConn
+local hunterHighlights = {}
+
 --// GET HRP
 local function getTrollTargetHRP()
     if not trollTargetName then return end
@@ -70,6 +74,10 @@ local function hasCounter(model)
     return false
 end
 
+local function hasHunterCounter(model)
+    return model:FindFirstChild("HunterCounter", true) ~= nil
+end
+
 --// GET HRP 
 local function getHRP()
 	local char = player.Character or player.CharacterAdded:Wait()
@@ -97,6 +105,28 @@ local function addHighlight(model)
     hl.Parent = model
 
     counterHighlights[model] = hl
+end
+
+local function addHunterHighlight(model)
+    if hunterHighlights[model] then return end
+
+    local hl = Instance.new("Highlight")
+    hl.FillColor = Color3.fromRGB(0, 170, 255) -- 🔵 biru
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.FillTransparency = 0.3
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = model
+    hl.Parent = model
+
+    hunterHighlights[model] = hl
+end
+
+local function removeHunterHighlight(model)
+    if hunterHighlights[model] then
+        hunterHighlights[model]:Destroy()
+        hunterHighlights[model] = nil
+    end
 end
 
 local function removeHighlight(model)
@@ -156,7 +186,12 @@ ModeDropdown:OnChanged(function(val)
 end)
 
 local CounterToggle = Tabs.Main:AddToggle("CounterESP", {
-    Title = "Detect Counter Enemy 🔴",
+    Title = "Detect Death Counter 🔴",
+    Default = false
+})
+
+local HunterToggle = Tabs.Main:AddToggle("HunterESP", {
+    Title = "Detect Garou Counter 🔵",
     Default = false
 })
 
@@ -346,6 +381,50 @@ local function stopCounterESP()
     end
 end
 
+local function startHunterESP()
+    if hunterConn then return end
+
+    hunterConn = RunService.Heartbeat:Connect(function()
+        if not hunterESPEnabled then return end
+
+        local liveFolder = workspace:FindFirstChild("Live")
+        if not liveFolder then return end
+
+        for _, model in pairs(liveFolder:GetChildren()) do
+            if model:IsA("Model") then
+                -- 🚫 skip diri sendiri
+                if model ~= player.Character then
+                    if hasHunterCounter(model) then
+                        addHunterHighlight(model)
+                    else
+                        removeHunterHighlight(model)
+                    end
+                end
+            end
+        end
+
+        -- cleanup
+        for model, _ in pairs(hunterHighlights) do
+            if not model or not model.Parent then
+                removeHunterHighlight(model)
+            end
+        end
+    end)
+end
+
+local function stopHunterESP()
+    hunterESPEnabled = false
+
+    if hunterConn then
+        hunterConn:Disconnect()
+        hunterConn = nil
+    end
+
+    for model, _ in pairs(hunterHighlights) do
+        removeHunterHighlight(model)
+    end
+end
+
 --// FLING BUTTON
 Tabs.Main:AddButton({
     Title = "Fling Target 😈",
@@ -392,6 +471,16 @@ CounterToggle:OnChanged(function(v)
         startCounterESP()
     else
         stopCounterESP()
+    end
+end)
+
+HunterToggle:OnChanged(function(v)
+    hunterESPEnabled = v
+
+    if v then
+        startHunterESP()
+    else
+        stopHunterESP()
     end
 end)
 
