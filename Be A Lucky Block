@@ -1,0 +1,319 @@
+--// LOAD UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+
+--// REMOTES (CACHE)
+local InventoryRF = RS.Packages._Index["sleitnick_knit@1.7.0"].knit.Services.InventoryService.RF
+local SellBrainrot = InventoryRF.SellBrainrot
+local SellLucky = InventoryRF.SellLuckyBlock
+
+--// REMOVE AUTORECONNECT (SAFE)
+pcall(function()
+    local pg = player.PlayerGui
+ 
+    local hud = pg:FindFirstChild("HUD")
+    if hud and hud:FindFirstChild("AutoReconnect") then
+        hud.AutoReconnect:Destroy()
+    end
+ 
+    local hud2 = pg:FindFirstChild("HUD_TEST")
+    if hud2 and hud2:FindFirstChild("AutoReconnect") then
+        hud2.AutoReconnect:Destroy()
+    end
+end)
+
+--// WINDOW
+local Window = Fluent:CreateWindow({
+    Title = "Be A Lucky Block",
+    SubTitle = "Majek Hub",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(520, 400),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
+    Sell = Window:AddTab({ Title = "Sell", Icon = "dollar-sign"})
+}
+
+--// STATE
+local autoFarm = false
+local autoSell = false
+local speed = 10000
+local farm_cooldown = 5
+local sell_cooldown = 30
+local sellMode = "ALL"
+local farmMode = "Move"
+local selectedMutations = {}
+
+--// ================= UI =================
+
+local AutoFarm = Tabs.Main:AddToggle("AutoFarm", {
+    Title = "Auto Farm",
+    Default = false
+})
+
+Tabs.Main:AddDropdown("FarmMode", {
+    Title = "Auto Farm Mode",
+    Values = {"Move", "Teleport"},
+    Multi = false,
+    Default = "Move"
+}):OnChanged(function(val) farmMode = val end)
+
+Tabs.Main:AddSlider("Speed", {
+    Title = "Speed",
+    Min = 500,
+    Max = 50000,
+    Default = 10000,
+	Rounding = 1
+}):OnChanged(function(v) speed = v end)
+
+Tabs.Main:AddSlider("CD", {
+    Title = "Cooldown(s)",
+    Min = 5,
+    Max = 40,
+    Default = 5,
+	Rounding = 1
+}):OnChanged(function(v) farm_cooldown = v end)
+
+local AutoSell = Tabs.Sell:AddToggle("Sell", { Title = "Auto Sell", Default = false })
+
+Tabs.Sell:AddDropdown("Mode", {
+    Title = "Sell Mode",
+    Values = {"ALL","Mutation"},
+    Default = "ALL"
+}):OnChanged(function(v) sellMode = v end)
+
+Tabs.Sell:AddDropdown("Mut", {
+    Title = "Mutation",
+    Values = {"NORMAL","CANDY","GOLD","DIAMOND","VOID"},
+    Multi = true,
+    Default = {}
+}):OnChanged(function(v)
+    selectedMutations = v
+end)
+
+Tabs.Sell:AddSlider("Sell-CD", {
+    Title = "Cooldown(s)",
+    Min = 30,
+    Max = 350,
+    Default = 30,
+	Rounding = 1
+}):OnChanged(function(v) sell_cooldown = v end)
+
+--// ================= FUNCTIONS =================
+
+local function getTools()
+    return player.Backpack:GetChildren()
+end
+
+local function getModel()
+    local f = workspace:FindFirstChild("RunningModels")
+    if not f then return end
+    return f:FindFirstChild(tostring(player.UserId))
+end
+
+--// GET HRP
+local function getHRP()
+    local char = player.Character or player.CharacterAdded:Wait()
+    return char:WaitForChild("HumanoidRootPart")
+end
+ 
+--// TELEPORT
+local function tp(part)
+    local hrp = getHRP()
+    if hrp and part then
+        hrp.CFrame = part.CFrame
+    end
+end
+
+--// ================= AUTO FARM (LIGHT LOOP) =================
+local farmThread
+
+local function startFarm()
+    if farmThread then return end
+
+    farmThread = task.spawn(function()
+        while autoFarm do
+            local shopFolder = workspace:FindFirstChild("TeleportParts")
+            local shop = shopFolder and shopFolder:FindFirstChild("ShopTeleportPart")
+            local line = workspace:FindFirstChild("Line")
+
+            -- 🔹 1. TELEPORT KE LINE (START FARM)
+            if line then
+                tp(line)
+				print("[1-to_LINE]")
+            end
+
+            task.wait(1)
+            if not autoFarm then break end
+
+            -- 🔹 2. AMBIL MODEL
+            local m = getModel()
+			print("[2-get_MODEL]")
+
+            if m then
+                -- 🔹 3. JALANKAN FARM
+				print("[3-farm_Mode]")
+                if farmMode == "Move" then
+                    m:SetAttribute("MovementSpeed", speed)
+
+                elseif farmMode == "Teleport" then
+                    local zoneFolder = workspace:FindFirstChild("CollectZones")
+                    local zone = zoneFolder and zoneFolder:FindFirstChild("base15")
+
+                    if zone then
+                        if not m.PrimaryPart then
+                            local part = m:FindFirstChildWhichIsA("BasePart")
+                            if part then
+                                m.PrimaryPart = part
+                            end
+                        end
+
+                        if m.PrimaryPart then
+                            m:SetPrimaryPartCFrame(zone.CFrame)
+                        end
+                    end
+                end
+
+                -- 🔹 4. TUNGGU SAMPAI MODEL HILANG
+                while m and m.Parent and autoFarm do
+                    task.wait(0.3)
+                end
+				print("[4-wait_MODEL]")
+
+                if not autoFarm then break end
+
+                -- 🔹 5. COOLDOWN
+                local t = 0
+                while t < tonumber(farm_cooldown) and autoFarm do
+                    task.wait(1)
+                    t += 1
+                end
+				print("[5-wait_COOLDOWN]")
+            end
+
+            if not autoFarm then break end
+
+            -- 🔹 6. TELEPORT KE SHOP (SETELAH COOLDOWN)
+            if shop then
+                tp(shop)
+				print("[6-to_SHOP]")
+            end
+
+            task.wait(1)
+        end
+
+        farmThread = nil
+    end)
+end
+
+local function stopFarm()
+    autoFarm = false
+    if farmThread then
+        task.cancel(farmThread)
+        farmThread = nil
+    end
+end
+
+AutoFarm:OnChanged(function(v)
+    autoFarm = v
+	print(v)
+    if v  then
+        startFarm()
+		print("Starts...")
+    else 
+        stopFarm()
+		print("Stops...")
+    end
+end)
+
+--// ================= AUTO SELL (SMART LOOP) =================
+local sellThread
+
+startSelling = function()
+	if sellThread then return end
+
+	sellThread = task.spawn(function()
+		while autoSell do
+        	if not autoSell then
+            	task.wait(0.5)
+            	continue
+        	end
+
+        	local tools = getTools()
+
+        	for i = 1, #tools do
+            	if not autoSell then break end
+
+            	local tool = tools[i]
+            	if not tool:IsA("Tool") then continue end
+
+            	local attr = tool:GetAttributes()
+            	local id = attr.EntityId
+            	if not id then continue end
+
+            	-- 🧠 Brainrot
+            	if attr.BrainrotType then
+                	if sellMode == "ALL" then
+                    	SellBrainrot:InvokeServer(id)
+						print("Selling_All...")
+
+                	elseif sellMode == "Mutation" then
+                    	local mut = attr.BrainrotMutation or "NORMAL"
+                    	if selectedMutations[mut] then
+                        	SellBrainrot:InvokeServer(id)
+							print("Selling_Brainrot...")
+                   		end
+                	end
+            	end
+
+            	-- 🎁 LuckyBlock
+            	if attr.LuckyBlockType then
+                	SellLucky:InvokeServer(id)
+					print("Selling_Lucky_Block...")
+            	end
+
+        	end
+
+        	-- ⏱ cooldown pintar (bisa stop kapan aja)
+        	local t = 0
+    		while t < tonumber(sell_cooldown) do
+            	if not autoSell then break end
+            	task.wait(1)
+            	t += 1
+        	end
+    	end
+	end)
+end
+
+stopSelling = function()
+	autoSell = false
+    if sellThread then
+        task.cancel(sellThread)
+        sellThread = nil
+    end
+end
+
+AutoSell:OnChanged(function(v)
+    autoSell = v
+    if v then
+        startSelling()
+    else
+        stopSelling()
+    end
+end)
+
+--// NOTIF
+Fluent:Notify({
+    Title = "Lite Loaded",
+    Content = "Script lebih ringan 🚀",
+    Duration = 4
+})
+Window:SelectTab(1)
