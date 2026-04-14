@@ -6,6 +6,8 @@ local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 
+-- 16.4140701, -10000.0049, 35.0859528, -0.234388381, 0, -0.972143114, 0, 1, 0, 0.972143114, 0, -0.234388381
+
 --// WINDOW
 local Window = Fluent:CreateWindow({
     Title = "Troll UI",
