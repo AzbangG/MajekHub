@@ -1,0 +1,312 @@
+--// LOAD UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+
+--// WINDOW
+local Window = Fluent:CreateWindow({
+    Title = "Troll UI",
+    SubTitle = "Majek Hub",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(500, 350),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "loader" })
+}
+
+--//GLOBAL STATE
+getgenv().OldPos = nil
+getgenv().FPDH = workspace.FallenPartsDestroyHeight
+
+--// STATE
+local trollEnabled = false
+local trollTargetName = nil
+local trollConn
+
+local FlingActive = false
+local flingTargetName = nil
+local flingMode = "Single"
+
+--// GET HRP
+local function getTrollTargetHRP()
+    if not trollTargetName then return end
+
+    local target = Players:FindFirstChild(trollTargetName)
+    if not target then return end
+
+    local char = target.Character
+    if not char then return end
+
+    return char:FindFirstChild("HumanoidRootPart")
+end
+
+--// PLAYER LIST
+local function getPlayerList()
+    local list = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= player then
+            table.insert(list, p.Name)
+        end
+    end
+    return list
+end
+
+--// DROPDOWN TROLL
+local TrollDropdown = Tabs.Main:AddDropdown("TrollPlayer", {
+    Title = "Troll Target",
+    Values = getPlayerList(),
+    Multi = false,
+    Default = nil
+})
+TrollDropdown:OnChanged(function(val)
+    trollTargetName = val
+end)
+
+--// TOGGLE
+local TrollToggle = Tabs.Main:AddToggle("Troll", {
+    Title = "Enable Troll (Behind)",
+    Default = false
+})
+
+--// DROPDOWN FLING
+local FlingDropdown = Tabs.Main:AddDropdown("FlingPlayer", {
+    Title = "Fling Target",
+    Values = getPlayerList(),
+    Multi = false,
+    Default = nil
+})
+FlingDropdown:OnChanged(function(val)
+    flingTargetName = val
+end)
+
+local ModeDropdown = Tabs.Main:AddDropdown("FlingMode", {
+    Title = "Fling Mode",
+    Values = {"Single", "Multi"},
+    Multi = false,
+    Default = "Single"
+})
+ModeDropdown:OnChanged(function(val)
+    flingMode = val
+end)
+
+--// AUTO UPDATE PLAYER LIST
+local function refreshPlayers()
+    local list = getPlayerList()
+    TrollDropdown:SetValues(list)
+    FlingDropdown:SetValues(list)
+end
+
+Players.PlayerAdded:Connect(refreshPlayers)
+Players.PlayerRemoving:Connect(refreshPlayers)
+
+--// TARGET HRP
+local function getTargetHRP()
+    if not selectedPlayerName then return end
+
+    local target = Players:FindFirstChild(selectedPlayerName)
+    if not target then return end
+
+    local char = target.Character
+    if not char then return end
+
+    return char:FindFirstChild("HumanoidRootPart")
+end
+
+--// GET HRP 
+local function getHRP()
+	local char = player.Character or player.CharacterAdded:Wait()
+	return char:WaitForChild("HumanoidRootPart")
+end
+
+--// TROLL LOOP (DI BELAKANG TARGET)
+local function startTroll()
+    if trollConn then return end
+
+    trollConn = RunService.RenderStepped:Connect(function()
+        if not trollEnabled then return end
+
+        local myHRP = getHRP()
+        local targetHRP = getTrollTargetHRP()
+
+        if myHRP and targetHRP then
+            local targetCF =
+                targetHRP.CFrame
+                * CFrame.new(0, 0, 3)
+
+            
+            myHRP.CFrame = myHRP.CFrame:Lerp(targetCF, 0.6)
+        end
+    end)
+end
+
+local function stopTroll()
+    trollEnabled = false
+
+    if trollConn then
+        trollConn:Disconnect()
+        trollConn = nil
+    end
+end
+
+TrollToggle:OnChanged(function(v)
+    trollEnabled = v
+
+    if v then
+        startTroll()
+    else
+        stopTroll()
+    end
+end)
+
+local function SkidFling(TargetPlayer)
+    local Character = player.Character
+    local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+    local RootPart = Humanoid and Humanoid.RootPart
+
+    local TCharacter = TargetPlayer.Character
+    if not TCharacter then return end
+
+    local THumanoid = TCharacter:FindFirstChildOfClass("Humanoid")
+    local TRootPart = THumanoid and THumanoid.RootPart
+    local THead = TCharacter:FindFirstChild("Head")
+
+    local Accessory = TCharacter:FindFirstChildOfClass("Accessory")
+    local Handle = Accessory and Accessory:FindFirstChild("Handle")
+
+    if not (Character and Humanoid and RootPart) then return end
+
+    if RootPart.Velocity.Magnitude < 50 then
+        getgenv().OldPos = RootPart.CFrame
+    end
+
+    if THumanoid and THumanoid.Sit then return end
+
+    -- CAMERA FIX
+    if THead then
+        workspace.CurrentCamera.CameraSubject = THead
+    elseif Handle then
+        workspace.CurrentCamera.CameraSubject = Handle
+    elseif THumanoid then
+        workspace.CurrentCamera.CameraSubject = THumanoid
+    end
+
+    local function FPos(BasePart, Pos, Ang)
+        RootPart.CFrame = CFrame.new(BasePart.Position) * Pos * Ang
+        Character:SetPrimaryPartCFrame(RootPart.CFrame)
+
+        RootPart.Velocity = Vector3.new(9e7, 9e7, 9e7)
+        RootPart.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
+    end
+
+    local function SFBasePart(BasePart)
+        local TimeToWait = 2
+        local Time = tick()
+        local Angle = 0
+
+        repeat
+            if RootPart and THumanoid then
+                Angle += 100
+
+                FPos(BasePart, CFrame.new(0, 1.5, 0), CFrame.Angles(math.rad(Angle),0,0))
+                task.wait()
+
+                FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(Angle),0,0))
+                task.wait()
+            end
+        until tick() > Time + TimeToWait
+    end
+
+    workspace.FallenPartsDestroyHeight = 0/0
+
+    local BV = Instance.new("BodyVelocity")
+    BV.Parent = RootPart
+    BV.MaxForce = Vector3.new(9e9,9e9,9e9)
+    BV.Velocity = Vector3.zero
+
+    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+
+    if TRootPart then
+        SFBasePart(TRootPart)
+    elseif THead then
+        SFBasePart(THead)
+    elseif Handle then
+        SFBasePart(Handle)
+    end
+
+    BV:Destroy()
+    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+    workspace.CurrentCamera.CameraSubject = Humanoid
+
+    -- RETURN POSITION (ANTI MATI 🔥)
+    if getgenv().OldPos then
+        repeat
+            RootPart.CFrame = getgenv().OldPos
+            Character:SetPrimaryPartCFrame(getgenv().OldPos)
+
+            for _, v in pairs(Character:GetChildren()) do
+                if v:IsA("BasePart") then
+                    v.Velocity = Vector3.zero
+                    v.RotVelocity = Vector3.zero
+                end
+            end
+
+            task.wait()
+        until (RootPart.Position - getgenv().OldPos.Position).Magnitude < 10
+
+        workspace.FallenPartsDestroyHeight = getgenv().FPDH
+    end
+end
+
+--// FLING BUTTON
+Tabs.Main:AddButton({
+    Title = "Fling Target 😈",
+    Description = "Mode Single / Multi",
+    Callback = function()
+
+        if flingMode == "Single" then
+            if flingTargetName then
+                local target = Players:FindFirstChild(flingTargetName)
+                if target then
+                    SkidFling(target)
+                end
+            end
+
+        elseif flingMode == "Multi" then
+            if FlingActive then return end
+            FlingActive = true
+
+            task.spawn(function()
+                while FlingActive do
+                    for _, p in pairs(Players:GetPlayers()) do
+                        if p ~= player then
+                            SkidFling(p)
+                            task.wait(0.1)
+                        end
+                    end
+                    task.wait(0.3)
+                end
+            end)
+
+            -- AUTO STOP setelah beberapa detik (biar gak infinite)
+            task.delay(5, function()
+                FlingActive = false
+            end)
+        end
+    end
+})
+
+--// NOTIF
+Fluent:Notify({
+    Title = "Troll UI Loaded",
+    Content = "Behind mode aktif 😈",
+    Duration = 4
+})
+
+Window:SelectTab(1)
