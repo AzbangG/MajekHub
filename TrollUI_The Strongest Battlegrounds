@@ -20,7 +20,9 @@ local Window = Fluent:CreateWindow({
 })
 
 local Tabs = {
-    Main = Window:AddTab({ Title = "Main", Icon = "loader" })
+    Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
+	Esp = Window:AddTab({ Title = "ESP", Icon = "bot" }),
+	Fling = Window:AddTab({ Title = "Fling", Icon = "bug" }),
 }
 
 --//GLOBAL STATE
@@ -156,7 +158,7 @@ local TrollToggle = Tabs.Main:AddToggle("Troll", {
 })
 
 --// SINGLE TARGET
-local FlingSingleDropdown = Tabs.Main:AddDropdown("FlingSingle", {
+local FlingSingleDropdown = Tabs.Fling:AddDropdown("FlingSingle", {
     Title = "Fling Single Target",
     Values = getPlayerList(),
     Multi = false,
@@ -167,7 +169,7 @@ FlingSingleDropdown:OnChanged(function(val)
 end)
 
 --// MULTI TARGET
-local FlingMultiDropdown = Tabs.Main:AddDropdown("FlingMulti", {
+local FlingMultiDropdown = Tabs.Fling:AddDropdown("FlingMulti", {
     Title = "Fling Multi Target",
     Values = getPlayerList(),
     Multi = true,
@@ -177,7 +179,7 @@ FlingMultiDropdown:OnChanged(function(val)
     flingMultiTargets = val -- table
 end)
 
-local ModeDropdown = Tabs.Main:AddDropdown("FlingMode", {
+local ModeDropdown = Tabs.Fling:AddDropdown("FlingMode", {
     Title = "Fling Mode",
     Values = {"Single", "Multi"},
     Multi = false,
@@ -187,12 +189,12 @@ ModeDropdown:OnChanged(function(val)
     flingMode = val
 end)
 
-local CounterToggle = Tabs.Main:AddToggle("CounterESP", {
+local CounterToggle = Tabs.Esp:AddToggle("CounterESP", {
     Title = "Detect Death Counter 🔴",
     Default = false
 })
 
-local HunterToggle = Tabs.Main:AddToggle("HunterESP", {
+local HunterToggle = Tabs.Esp:AddToggle("HunterESP", {
     Title = "Detect Garou Counter 🔵",
     Default = false
 })
@@ -428,7 +430,7 @@ local function stopHunterESP()
 end
 
 --// FLING BUTTON
-Tabs.Main:AddButton({
+Tabs.Fling:AddButton({
     Title = "Fling Target 😈",
     Description = "Mode Single / Multi",
     Callback = function()
@@ -489,7 +491,7 @@ end)
 --// NOTIF
 Fluent:Notify({
     Title = "Troll UI Loaded",
-    Content = "Behind mode aktif 😈",
+    Content = "Troll aktif 😈",
     Duration = 4
 })
 
