@@ -105,6 +105,7 @@ local function getPlayerList()
             table.insert(list, p.Name)
         end
     end
+	print("REFRESHING...")
     return list
 end
 
@@ -123,21 +124,6 @@ end
 local function getHRP()
 	local char = player.Character or player.CharacterAdded:Wait()
 	return char:WaitForChild("HumanoidRootPart")
-end
-
---// AUTO UPDATE PLAYER LIST
-local function refreshPlayers()
-    local list = getPlayerList()
-
-    if TrollDropdown then
-        TrollDropdown:SetValues(list)
-    end
-    if FlingSingleDropdown then
-        FlingSingleDropdown:SetValues(list)
-    end
-    if FlingMultiDropdown then
-        FlingMultiDropdown:SetValues(list)
-    end
 end
 
 local function addHighlight(model)
@@ -191,9 +177,49 @@ local TrollDropdown = Tabs.Main:AddDropdown("TrollPlayer", {
     Multi = false,
     Default = nil
 })
+
+--// SINGLE TARGET
+local FlingSingleDropdown = Tabs.Fling:AddDropdown("FlingSingle", {
+    Title = "Fling Single Target",
+    Values = getPlayerList(),
+    Multi = false,
+    Default = nil
+})
+
+--// MULTI TARGET
+local FlingMultiDropdown = Tabs.Fling:AddDropdown("FlingMulti", {
+    Title = "Fling Multi Target",
+    Values = getPlayerList(),
+    Multi = true,
+    Default = {}
+})
+
+--// AUTO UPDATE PLAYER LIST
+local function refreshPlayers()
+    local list = getPlayerList()
+
+    if TrollDropdown then
+        TrollDropdown:SetValues(list)
+    end
+    if FlingSingleDropdown then
+        FlingSingleDropdown:SetValues(list)
+    end
+    if FlingMultiDropdown then
+        FlingMultiDropdown:SetValue(list)
+    end
+end
+
 TrollDropdown:OnChanged(function(val)
     trollTargetName = val
 end)
+
+Tabs.Main:AddButton({
+    Title = "🔄 Refresh Player List",
+    Description = "Update semua dropdown player",
+    Callback = function()
+        refreshPlayers()
+    end
+})
 
 --// TOGGLE
 local TrollToggle = Tabs.Main:AddToggle("Troll", {
@@ -236,24 +262,10 @@ Tabs.Main:AddButton({
     end
 })
 
---// SINGLE TARGET
-local FlingSingleDropdown = Tabs.Fling:AddDropdown("FlingSingle", {
-    Title = "Fling Single Target",
-    Values = getPlayerList(),
-    Multi = false,
-    Default = nil
-})
 FlingSingleDropdown:OnChanged(function(val)
     flingSingleTarget = val
 end)
 
---// MULTI TARGET
-local FlingMultiDropdown = Tabs.Fling:AddDropdown("FlingMulti", {
-    Title = "Fling Multi Target",
-    Values = getPlayerList(),
-    Multi = true,
-    Default = {}
-})
 FlingMultiDropdown:OnChanged(function(val)
     flingMultiTargets = val -- table
 end)
@@ -267,6 +279,14 @@ local ModeDropdown = Tabs.Fling:AddDropdown("FlingMode", {
 ModeDropdown:OnChanged(function(val)
     flingMode = val
 end)
+
+Tabs.Fling:AddButton({
+    Title = "🔄 Refresh Player List",
+    Description = "Update semua dropdown player",
+    Callback = function()
+        refreshPlayers()
+    end
+})
 
 -- 🔄 AUTO UPDATE PLAYER LIST (FIX)
 Players.PlayerAdded:Connect(function()
