@@ -7,9 +7,14 @@ local RS = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 
 --// REMOTES (CACHE)
-local InventoryRF = RS.Packages._Index["sleitnick_knit@1.7.0"].knit.Services.InventoryService.RF
+local KnitIndex = RS.Packages._Index["sleitnick_knit@1.7.0"].knit.Services
+
+local InventoryRF = KnitIndex.InventoryService.RF
 local SellBrainrot = InventoryRF.SellBrainrot
 local SellLucky = InventoryRF.SellLuckyBlock
+
+local PlaytimeRF = KnitIndex.PlaytimeRewardService.RF.ClaimGift
+local PassRF = KnitIndex.SeasonPassService.RF.ClaimPassReward
 
 --// REMOVE AUTORECONNECT (SAFE)
 pcall(function()
@@ -39,18 +44,21 @@ local Window = Fluent:CreateWindow({
 
 local Tabs = {
     Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
-    Sell = Window:AddTab({ Title = "Sell", Icon = "dollar-sign"})
+    Sell = Window:AddTab({ Title = "Sell", Icon = "dollar-sign"}),
+	Misc = Window:AddTab({ Title = "Misc", Icon = "gift"}),
 }
 
 --// STATE
 local autoFarm = false
+local selectedZone = nil
 local autoSell = false
 local speed = 10000
-local farm_cooldown = 5
 local sell_cooldown = 30
 local sellMode = "ALL"
 local farmMode = "Move"
 local selectedMutations = {}
+local autoReward = false
+local rewardThread
 
 --// ================= UI =================
 
@@ -73,14 +81,6 @@ Tabs.Main:AddSlider("Speed", {
     Default = 10000,
 	Rounding = 1
 }):OnChanged(function(v) speed = v end)
-
-Tabs.Main:AddSlider("CD", {
-    Title = "Cooldown(s)",
-    Min = 5,
-    Max = 40,
-    Default = 5,
-	Rounding = 1
-}):OnChanged(function(v) farm_cooldown = v end)
 
 local AutoSell = Tabs.Sell:AddToggle("Sell", { Title = "Auto Sell", Default = false })
 
@@ -107,7 +107,47 @@ Tabs.Sell:AddSlider("Sell-CD", {
 	Rounding = 1
 }):OnChanged(function(v) sell_cooldown = v end)
 
+local AutoReward = Tabs.Misc:AddToggle("AutoReward", {
+    Title = "Auto Claim Reward 🎁",
+	Description = "Claim Pass and Playtime",
+    Default = false
+})
+
+local ZoneDropdown = Tabs.Main:AddDropdown("ZoneSelect", {
+    Title = "Select Base Zone",
+    Values = {},
+    Multi = false,
+    Default = nil
+})
+
+ZoneDropdown:OnChanged(function(val)
+    selectedZone = val
+end)
+
 --// ================= FUNCTIONS =================
+local function getZones()
+    local list = {}
+    local folder = workspace:FindFirstChild("CollectZones")
+
+    if folder then
+        for _, v in pairs(folder:GetChildren()) do
+            if v:IsA("BasePart") then
+                table.insert(list, v.Name)
+            end
+        end
+    end
+
+    return list
+end
+
+local function getSelectedZone()
+    if not selectedZone then return workspace.CollectZones.base15 end
+
+    local folder = workspace:FindFirstChild("CollectZones")
+    if not folder then return end
+
+    return folder:FindFirstChild(selectedZone)
+end
 
 local function getTools()
     return player.Backpack:GetChildren()
@@ -124,12 +164,60 @@ local function getHRP()
     local char = player.Character or player.CharacterAdded:Wait()
     return char:WaitForChild("HumanoidRootPart")
 end
+
+--// GET HRP
+local function getModelHRP(character)
+    local char = character
+    return char:WaitForChild("HumanoidRootPart")
+end
  
 --// TELEPORT
 local function tp(part)
     local hrp = getHRP()
     if hrp and part then
-        hrp.CFrame = part.CFrame
+        hrp.CFrame = part.CFrame + Vector3.new(0, 0, -5)
+    end
+end
+
+local function startReward()
+    if rewardThread then return end
+
+    rewardThread = task.spawn(function()
+        while autoReward do
+            
+            -- 🎁 CLAIM PLAYTIME
+            for i = 1, 12 do
+                pcall(function()
+                    PlaytimeRF:InvokeServer(i)
+                end)
+            end
+            print("[Reward] Claim Playtime...")
+
+            -- 🎫 CLAIM PASS
+            pcall(function()
+                PassRF:InvokeServer()
+            end)
+            print("[Reward] Claim Pass...")
+
+            -- ⏱ DELAY 60 DETIK (SMART BREAK)
+            local t = 0
+            while t < 60 do
+                if not autoReward then break end
+                task.wait(1)
+                t += 1
+            end
+        end
+
+        rewardThread = nil
+    end)
+end
+
+local function stopReward()
+    autoReward = false
+
+    if rewardThread then
+        task.cancel(rewardThread)
+        rewardThread = nil
     end
 end
 
@@ -145,66 +233,110 @@ local function startFarm()
             local shop = shopFolder and shopFolder:FindFirstChild("ShopTeleportPart")
             local line = workspace:FindFirstChild("Line")
 
-            -- 🔹 1. TELEPORT KE LINE (START FARM)
+            -- 🔹 1. TELEPORT KE LINE
+            print("0. Teleport Lines")
             if line then
                 tp(line)
-				print("[1-to_LINE]")
             end
 
-            task.wait(1)
+            task.wait(2)
             if not autoFarm then break end
 
             -- 🔹 2. AMBIL MODEL
             local m = getModel()
-			print("[2-get_MODEL]")
 
             if m then
+                local zone = getSelectedZone()
+                local hrp = getModelHRP(m)
+
                 -- 🔹 3. JALANKAN FARM
-				print("[3-farm_Mode]")
+                print("1. Runs")
+				warn(zone.Name.."_1")
+
                 if farmMode == "Move" then
-                    m:SetAttribute("MovementSpeed", speed)
+					warn("farmMode-Move")
+                    if m and hrp then
+						warn("Move_Run-1")
+                        m:SetAttribute("MovementSpeed", speed)
 
-                elseif farmMode == "Teleport" then
-                    local zoneFolder = workspace:FindFirstChild("CollectZones")
-                    local zone = zoneFolder and zoneFolder:FindFirstChild("base15")
+                        if zone then
+							warn(zone.Name.."_2")
+							warn("Move_Run-2")
+                            local reached = false
+                            local t = 0
 
-                    if zone then
-                        if not m.PrimaryPart then
-                            local part = m:FindFirstChildWhichIsA("BasePart")
-                            if part then
-                                m.PrimaryPart = part
+                            while not reached and t < 7 and autoFarm do
+                                local dist = (hrp.Position - zone.Position).Magnitude
+
+                                if dist <= 35 then
+                                    reached = true
+                                    break
+                                end
+
+                                task.wait(0.1)
+                                t += 0.1
                             end
+						else
+							warn("zone Lost")
                         end
 
-                        if m.PrimaryPart then
-                            m:SetPrimaryPartCFrame(zone.CFrame)
+                        m:SetAttribute("MovementSpeed", 0)
+					else
+						warn("Lost")
+                    end
+                elseif farmMode == "Teleport" then
+					warn("farmMode-Teleport")
+                    if not m.PrimaryPart then
+						warn("Teleport_Run-1")
+                        local part = m:FindFirstChildWhichIsA("BasePart")
+                        if part then
+                            m.PrimaryPart = part
                         end
+                    end
+
+                    if m.PrimaryPart then
+					warn("Teleport_Run-2")
+                        if zone then
+							warn(zone.Name.."_3")
+                            m:SetPrimaryPartCFrame(zone.CFrame + Vector3.new(0, -5, 0))
+                        else
+                            m:SetPrimaryPartCFrame(workspace.CollectZones.base15.CFrame + Vector3.new(0, -5, 0))
+                        end
+
+                        m:SetAttribute("MovementSpeed", 0)
                     end
                 end
 
-                -- 🔹 4. TUNGGU SAMPAI MODEL HILANG
+                -- 🔹 4. TUNGGU MODEL HILANG
+                print("2. Wait Model Gone")
                 while m and m.Parent and autoFarm do
                     task.wait(0.3)
                 end
-				print("[4-wait_MODEL]")
 
                 if not autoFarm then break end
 
-                -- 🔹 5. COOLDOWN
-                local t = 0
-                while t < tonumber(farm_cooldown) and autoFarm do
-                    task.wait(1)
-                    t += 1
+                -- 🔹 5. TUNGGU CUTSCENE MUNCUL
+                print("3. Waiting CUTSCENE_FOLD appear")
+                local cutscene
+                while not cutscene and autoFarm do
+                    cutscene = workspace:FindFirstChild("CUTSENE_FOLD")
+                    task.wait(0.2)
                 end
-				print("[5-wait_COOLDOWN]")
+
+                -- 🔹 6. TUNGGU CUTSCENE HILANG
+                print("4. Waiting CUTSCENE_FOLD disappear")
+                while cutscene and cutscene.Parent and autoFarm do
+                    task.wait(0.2)
+                end
+				wait(0.5)
             end
 
             if not autoFarm then break end
 
-            -- 🔹 6. TELEPORT KE SHOP (SETELAH COOLDOWN)
+            -- 🔹 7. TELEPORT KE SHOP
+            print("5. Teleport Shop")
             if shop then
                 tp(shop)
-				print("[6-to_SHOP]")
             end
 
             task.wait(1)
@@ -224,13 +356,28 @@ end
 
 AutoFarm:OnChanged(function(v)
     autoFarm = v
-	print(v)
+
     if v  then
         startFarm()
-		print("Starts...")
     else 
         stopFarm()
-		print("Stops...")
+    end
+end)
+
+AutoReward:OnChanged(function(v)
+    autoReward = v
+
+    if v then
+        startReward()
+    else
+        stopReward()
+    end
+end)
+
+ZoneDropdown:SetValues(getZones())
+workspace.ChildAdded:Connect(function(child)
+    if child.Name == "CollectZones" then
+        ZoneDropdown:SetValues(getZones())
     end
 end)
 
@@ -263,13 +410,13 @@ startSelling = function()
             	if attr.BrainrotType then
                 	if sellMode == "ALL" then
                     	SellBrainrot:InvokeServer(id)
-						print("Selling_All...")
+						print("[Sell] Selling_All...")
 
                 	elseif sellMode == "Mutation" then
                     	local mut = attr.BrainrotMutation or "NORMAL"
                     	if selectedMutations[mut] then
                         	SellBrainrot:InvokeServer(id)
-							print("Selling_Brainrot...")
+							print("[Sell] Selling_Brainrot...")
                    		end
                 	end
             	end
@@ -277,7 +424,7 @@ startSelling = function()
             	-- 🎁 LuckyBlock
             	if attr.LuckyBlockType then
                 	SellLucky:InvokeServer(id)
-					print("Selling_Lucky_Block...")
+					print("[Sell] Selling_Lucky_Block...")
             	end
 
         	end
