@@ -29,6 +29,43 @@ local Tabs = {
 getgenv().OldPos = nil
 getgenv().FPDH = workspace.FallenPartsDestroyHeight
 
+player.CharacterAdded:Connect(function(char)
+    task.wait(1)
+    workspace.FallenPartsDestroyHeight = 0/0
+end)
+
+--// VOID PLATFORM
+local voidPart
+
+local function createVoidPart()
+    if voidPart then return end
+
+    voidPart = Instance.new("Part")
+    voidPart.Size = Vector3.new(100, 5, 100) -- luas
+    voidPart.Anchored = true
+    voidPart.CanCollide = true
+	voidPart.CanTouch = true
+	voidPart.CanQuery = true
+	voidPart.Massless = true
+	voidPart.Material = Enum.Material.Neon
+	voidPart.TopSurface = Enum.SurfaceType.Smooth
+	voidPart.BottomSurface = Enum.SurfaceType.Smooth
+    voidPart.Transparency = 0.2
+    voidPart.Color = Color3.fromRGB(0, 0, 0)
+    voidPart.Name = "TrollVoidPlatform"
+
+    voidPart.CFrame = CFrame.new(
+        16.4140701, -10000.0049, 35.0859528,
+        -0.234388381, 0, -0.972143114,
+        0, 1, 0,
+        0.972143114, 0, -0.234388381
+    )
+
+    voidPart.Parent = workspace
+end
+
+createVoidPart()
+
 --// STATE
 local trollEnabled = false
 local trollTargetName = nil
@@ -91,9 +128,16 @@ end
 --// AUTO UPDATE PLAYER LIST
 local function refreshPlayers()
     local list = getPlayerList()
-    TrollDropdown:SetValues(list)
-    FlingSingleDropdown:SetValues(list)
-    FlingMultiDropdown:SetValues(list)
+
+    if TrollDropdown then
+        TrollDropdown:SetValues(list)
+    end
+    if FlingSingleDropdown then
+        FlingSingleDropdown:SetValues(list)
+    end
+    if FlingMultiDropdown then
+        FlingMultiDropdown:SetValues(list)
+    end
 end
 
 local function addHighlight(model)
@@ -157,6 +201,41 @@ local TrollToggle = Tabs.Main:AddToggle("Troll", {
     Default = false
 })
 
+Tabs.Main:AddButton({
+    Title = "Teleport ke Void Platform",
+    Description = "Safe TP (PivotTo)",
+    Callback = function()
+        local char = player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+        if char and voidPart and hum then
+            local old = workspace.FallenPartsDestroyHeight
+            workspace.FallenPartsDestroyHeight = 0/0
+
+            for _, v in pairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    v.Velocity = Vector3.zero
+                    v.RotVelocity = Vector3.zero
+                end
+            end
+
+            hum:ChangeState(Enum.HumanoidStateType.Physics)
+
+            task.wait()
+
+            char:PivotTo(voidPart.CFrame + Vector3.new(0, 100, 0))
+			task.wait(0.2)
+			char:PivotTo(voidPart.CFrame + Vector3.new(0, 10, 0))
+
+            task.wait(0.3)
+
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+
+            workspace.FallenPartsDestroyHeight = old
+        end
+    end
+})
+
 --// SINGLE TARGET
 local FlingSingleDropdown = Tabs.Fling:AddDropdown("FlingSingle", {
     Title = "Fling Single Target",
@@ -189,6 +268,20 @@ ModeDropdown:OnChanged(function(val)
     flingMode = val
 end)
 
+-- 🔄 AUTO UPDATE PLAYER LIST (FIX)
+Players.PlayerAdded:Connect(function()
+    task.wait(0.2) -- biar player fully loaded
+    refreshPlayers()
+end)
+
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.2)
+    refreshPlayers()
+end)
+
+-- 🔥 INITIAL REFRESH (PENTING)
+task.delay(0.5, refreshPlayers)
+
 local CounterToggle = Tabs.Esp:AddToggle("CounterESP", {
     Title = "Detect Death Counter 🔴",
     Default = false
@@ -198,9 +291,6 @@ local HunterToggle = Tabs.Esp:AddToggle("HunterESP", {
     Title = "Detect Garou Counter 🔵",
     Default = false
 })
-
-Players.PlayerAdded:Connect(refreshPlayers)
-Players.PlayerRemoving:Connect(refreshPlayers)
 
 --// TROLL LOOP (DI BELAKANG TARGET)
 local function startTroll()
