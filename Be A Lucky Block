@@ -3,6 +3,7 @@ local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
+local VirtualUser = game:GetService("VirtualUser")
 
 local player = Players.LocalPlayer
 
@@ -45,7 +46,7 @@ local Window = Fluent:CreateWindow({
 local Tabs = {
     Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
     Sell = Window:AddTab({ Title = "Sell", Icon = "dollar-sign"}),
-	Misc = Window:AddTab({ Title = "Misc", Icon = "gift"}),
+    Misc = Window:AddTab({ Title = "Misc", Icon = "gift"}),
 }
 
 --// STATE
@@ -59,6 +60,8 @@ local farmMode = "Move"
 local selectedMutations = {}
 local autoReward = false
 local rewardThread
+local antiAFK = false
+local antiAFKConn
 
 --// ================= UI =================
 
@@ -68,19 +71,25 @@ local AutoFarm = Tabs.Main:AddToggle("AutoFarm", {
 })
 
 Tabs.Main:AddDropdown("FarmMode", {
-    Title = "Auto Farm Mode",
+    Title = "Mode",
     Values = {"Move", "Teleport"},
-    Multi = false,
     Default = "Move"
-}):OnChanged(function(val) farmMode = val end)
+}):OnChanged(function(v) farmMode = v end)
 
 Tabs.Main:AddSlider("Speed", {
     Title = "Speed",
     Min = 500,
     Max = 50000,
     Default = 10000,
-	Rounding = 1
+	Rounding = 10,
 }):OnChanged(function(v) speed = v end)
+
+local ZoneDropdown = Tabs.Main:AddDropdown("Zone", {
+    Title = "Select Zone",
+    Values = {},
+    Default = nil
+})
+ZoneDropdown:OnChanged(function(v) selectedZone = v end)
 
 local AutoSell = Tabs.Sell:AddToggle("Sell", { Title = "Auto Sell", Default = false })
 
@@ -99,83 +108,65 @@ Tabs.Sell:AddDropdown("Mut", {
     selectedMutations = v
 end)
 
-Tabs.Sell:AddSlider("Sell-CD", {
-    Title = "Cooldown(s)",
+Tabs.Sell:AddSlider("CD", {
+    Title = "Cooldown",
     Min = 30,
     Max = 350,
     Default = 30,
-	Rounding = 1
+	Rounding = 1,
 }):OnChanged(function(v) sell_cooldown = v end)
 
-local AutoReward = Tabs.Misc:AddToggle("AutoReward", {
-    Title = "Auto Claim Reward 🎁",
-	Description = "Claim Pass and Playtime",
+local AutoReward = Tabs.Misc:AddToggle("Reward", {
+    Title = "Auto Reward",
     Default = false
 })
 
-local ZoneDropdown = Tabs.Main:AddDropdown("ZoneSelect", {
-    Title = "Select Base Zone",
-    Values = {},
-    Multi = false,
-    Default = nil
+local AntiAFKToggle = Tabs.Misc:AddToggle("AntiAFK", {
+    Title = "Anti AFK",
+    Default = false
 })
 
-ZoneDropdown:OnChanged(function(val)
-    selectedZone = val
-end)
-
 --// ================= FUNCTIONS =================
+
 local function getZones()
     local list = {}
-    local folder = workspace:FindFirstChild("CollectZones")
-
-    if folder then
-        for _, v in pairs(folder:GetChildren()) do
+    local f = workspace:FindFirstChild("CollectZones")
+    if f then
+        for _,v in pairs(f:GetChildren()) do
             if v:IsA("BasePart") then
                 table.insert(list, v.Name)
             end
         end
     end
-
     return list
 end
 
 local function getSelectedZone()
     if not selectedZone then return workspace.CollectZones.base15 end
 
-    local folder = workspace:FindFirstChild("CollectZones")
-    if not folder then return end
+    local f = workspace:FindFirstChild("CollectZones")
+    if not f then return end
 
-    return folder:FindFirstChild(selectedZone)
+    return f:FindFirstChild(selectedZone)
 end
 
-local function getTools()
-    return player.Backpack:GetChildren()
+local function getHRP()
+    return (player.Character or player.CharacterAdded:Wait()):WaitForChild("HumanoidRootPart")
 end
 
 local function getModel()
     local f = workspace:FindFirstChild("RunningModels")
-    if not f then return end
-    return f:FindFirstChild(tostring(player.UserId))
+    return f and f:FindFirstChild(tostring(player.UserId))
 end
 
---// GET HRP
-local function getHRP()
-    local char = player.Character or player.CharacterAdded:Wait()
-    return char:WaitForChild("HumanoidRootPart")
+local function getModelHRP(m)
+    return m:WaitForChild("HumanoidRootPart")
 end
 
---// GET HRP
-local function getModelHRP(character)
-    local char = character
-    return char:WaitForChild("HumanoidRootPart")
-end
- 
---// TELEPORT
-local function tp(part)
+local function tp(p)
     local hrp = getHRP()
-    if hrp and part then
-        hrp.CFrame = part.CFrame + Vector3.new(0, 0, -5)
+    if hrp and p then
+        hrp.CFrame = p.CFrame + Vector3.new(0,0,5)
     end
 end
 
@@ -221,7 +212,75 @@ local function stopReward()
     end
 end
 
---// ================= AUTO FARM (LIGHT LOOP) =================
+--// ================= AUTO REFRESH ZONE =================
+
+local zoneCons = {}
+
+local function clearZoneCons()
+    for _,c in pairs(zoneCons) do
+        c:Disconnect()
+    end
+    table.clear(zoneCons)
+end
+
+local function setupZoneRefresh()
+    local function hook(folder)
+        clearZoneCons()
+        ZoneDropdown:SetValues(getZones())
+
+        table.insert(zoneCons, folder.ChildAdded:Connect(function(c)
+            if c:IsA("BasePart") then
+                ZoneDropdown:SetValues(getZones())
+            end
+        end))
+
+        table.insert(zoneCons, folder.ChildRemoved:Connect(function(c)
+            if c:IsA("BasePart") then
+                ZoneDropdown:SetValues(getZones())
+            end
+        end))
+    end
+
+    local f = workspace:FindFirstChild("CollectZones")
+    if f then hook(f) end
+
+    table.insert(zoneCons, workspace.ChildAdded:Connect(function(c)
+        if c.Name == "CollectZones" then
+            task.wait(0.2)
+            hook(c)
+        end
+    end))
+end
+
+setupZoneRefresh()
+
+--// ================= ANTI AFK =================
+
+local function startAntiAFK()
+    if antiAFKConn then return end
+    antiAFKConn = player.Idled:Connect(function()
+        if not antiAFK then return end
+        VirtualUser:CaptureController()
+        VirtualUser:Button2Down(Vector2.zero, workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.zero, workspace.CurrentCamera.CFrame)
+    end)
+end
+
+local function stopAntiAFK()
+    if antiAFKConn then
+        antiAFKConn:Disconnect()
+        antiAFKConn = nil
+    end
+end
+
+AntiAFKToggle:OnChanged(function(v)
+    antiAFK = v
+    if v then startAntiAFK() else stopAntiAFK() end
+end)
+
+--// ================= AUTO FARM =================
+
 local farmThread
 
 local function startFarm()
@@ -239,29 +298,22 @@ local function startFarm()
                 tp(line)
             end
 
-            task.wait(2)
+            task.wait(1)
             if not autoFarm then break end
 
             -- 🔹 2. AMBIL MODEL
             local m = getModel()
-
             if m then
                 local zone = getSelectedZone()
                 local hrp = getModelHRP(m)
 
                 -- 🔹 3. JALANKAN FARM
                 print("1. Runs")
-				warn(zone.Name.."_1")
-
                 if farmMode == "Move" then
-					warn("farmMode-Move")
                     if m and hrp then
-						warn("Move_Run-1")
                         m:SetAttribute("MovementSpeed", speed)
 
                         if zone then
-							warn(zone.Name.."_2")
-							warn("Move_Run-2")
                             local reached = false
                             local t = 0
 
@@ -285,9 +337,7 @@ local function startFarm()
 						warn("Lost")
                     end
                 elseif farmMode == "Teleport" then
-					warn("farmMode-Teleport")
                     if not m.PrimaryPart then
-						warn("Teleport_Run-1")
                         local part = m:FindFirstChildWhichIsA("BasePart")
                         if part then
                             m.PrimaryPart = part
@@ -295,9 +345,7 @@ local function startFarm()
                     end
 
                     if m.PrimaryPart then
-					warn("Teleport_Run-2")
                         if zone then
-							warn(zone.Name.."_3")
                             m:SetPrimaryPartCFrame(zone.CFrame + Vector3.new(0, -5, 0))
                         else
                             m:SetPrimaryPartCFrame(workspace.CollectZones.base15.CFrame + Vector3.new(0, -5, 0))
@@ -339,7 +387,7 @@ local function startFarm()
                 tp(shop)
             end
 
-            task.wait(1)
+            task.wait(1.7)
         end
 
         farmThread = nil
@@ -356,12 +404,7 @@ end
 
 AutoFarm:OnChanged(function(v)
     autoFarm = v
-
-    if v  then
-        startFarm()
-    else 
-        stopFarm()
-    end
+    if v then startFarm() else stopFarm() end
 end)
 
 AutoReward:OnChanged(function(v)
@@ -371,13 +414,6 @@ AutoReward:OnChanged(function(v)
         startReward()
     else
         stopReward()
-    end
-end)
-
-ZoneDropdown:SetValues(getZones())
-workspace.ChildAdded:Connect(function(child)
-    if child.Name == "CollectZones" then
-        ZoneDropdown:SetValues(getZones())
     end
 end)
 
@@ -457,10 +493,12 @@ AutoSell:OnChanged(function(v)
     end
 end)
 
---// NOTIF
+--// ================= NOTIF =================
+
 Fluent:Notify({
-    Title = "Lite Loaded",
-    Content = "Script lebih ringan 🚀",
+    Title = "Loaded",
+    Content = "Script aktif 🚀",
     Duration = 4
 })
+
 Window:SelectTab(1)
