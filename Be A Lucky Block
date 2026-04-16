@@ -81,7 +81,7 @@ Tabs.Main:AddSlider("Speed", {
     Min = 500,
     Max = 50000,
     Default = 10000,
-	Rounding = 10,
+	Rounding = 2,
 }):OnChanged(function(v) speed = v end)
 
 local ZoneDropdown = Tabs.Main:AddDropdown("Zone", {
@@ -148,6 +148,10 @@ local function getSelectedZone()
     if not f then return end
 
     return f:FindFirstChild(selectedZone)
+end
+
+local function getTools()
+    return player.Backpack:GetChildren()
 end
 
 local function getHRP()
