@@ -1,0 +1,107 @@
+local Players = game:GetService("Players")
+local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local RS = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local playerGui = player.PlayerGui
+
+--// LOAD UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+--// WINDOW
+local Window = Fluent:CreateWindow({
+    Title = "Kick A Lucky Block",
+    SubTitle = "Majek Hub",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(520, 400),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
+}
+
+--// STATE
+local autoClickBonus = false
+local bonusConnections = {}
+
+--// ================= UI =================
+local AutoClick = Tabs.Main:AddToggle("Auto", {
+    Title = "Auto Click",
+	Description = "Click 2x while training",
+    Default = false
+})
+
+--// FUNCTION AUTO CLICK BONUS
+local function clearConnections()
+    for _, conn in ipairs(bonusConnections) do
+        if conn and conn.Disconnect then
+            conn:Disconnect()
+        end
+    end
+    table.clear(bonusConnections)
+end
+
+local function clickButton(button)
+    if not button or not button.Visible then return end
+
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.ButtonB, false, game)
+    task.wait(0.1)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.ButtonB, false, game)
+end
+
+local function setupBonusAutoClick()
+    clearConnections()
+
+    local kickGui = playerGui:WaitForChild("KickUpgrades")
+
+    local function hookBonus(button)
+        if not button:IsA("GuiButton") then return end
+
+        local conn = button:GetPropertyChangedSignal("Visible"):Connect(function()
+            if autoClickBonus and button.Visible then
+                task.wait(0.1)
+                pcall(function()
+                    clickButton(button)
+                end)
+            end
+        end)
+
+        table.insert(bonusConnections, conn)
+
+        -- kalau sudah visible
+        if autoClickBonus and button.Visible then
+            task.wait(0.1)
+            pcall(function()
+                clickButton(button)
+            end)
+        end
+    end
+
+    for _, v in ipairs(kickGui:GetDescendants()) do
+        if v.Name == "Bonus" then
+            hookBonus(v)
+        end
+    end
+
+    local addedConn = kickGui.DescendantAdded:Connect(function(v)
+        if v.Name == "Bonus" then
+            task.wait()
+            hookBonus(v)
+        end
+    end)
+
+    table.insert(bonusConnections, addedConn)
+end
+
+AutoClick:OnChanged(function(v)
+    autoClickBonus = v
+    if v then
+        setupBonusAutoClick()
+    else
+        clearConnections()
+    end
+end)
