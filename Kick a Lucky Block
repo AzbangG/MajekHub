@@ -27,11 +27,19 @@ local Tabs = {
 --// STATE
 local autoClickBonus = false
 local bonusConnections = {}
+local autoKick = false
+local kickConnection = nil
 
 --// ================= UI =================
 local AutoClick = Tabs.Main:AddToggle("Auto", {
     Title = "Auto Click",
 	Description = "Click 2x while training",
+    Default = false
+})
+
+local AutoKick = Tabs.Main:AddToggle("AutoKick", {
+    Title = "Auto Kick",
+    Description = "Auto kick when bar is full",
     Default = false
 })
 
@@ -43,6 +51,19 @@ local function clearConnections()
         end
     end
     table.clear(bonusConnections)
+end
+
+local function clickCenterScreen()
+    local camera = workspace.CurrentCamera
+    local viewport = camera.ViewportSize
+
+    local x = viewport.X / 2
+    local y = viewport.Y / 2
+
+    -- klik tengah layar
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+    task.wait(0.05)
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
 end
 
 local function clickButton(button)
@@ -97,11 +118,45 @@ local function setupBonusAutoClick()
     table.insert(bonusConnections, addedConn)
 end
 
+local function startAutoKick()
+    local movingBar = playerGui:WaitForChild("KickMinigame")
+        :WaitForChild("Bar")
+        :WaitForChild("MovingBar")
+
+    kickConnection = movingBar:GetPropertyChangedSignal("Size"):Connect(function()
+        if not autoKick then return end
+
+        local size = movingBar.Size
+
+        -- langsung klik tanpa delay
+        if size.X.Scale >= 1 and size.Y.Scale >= 1 then
+            clickCenterScreen()
+        end
+    end)
+end
+
+local function stopAutoKick()
+    if kickConnection then
+        kickConnection:Disconnect()
+        kickConnection = nil
+    end
+end
+
 AutoClick:OnChanged(function(v)
     autoClickBonus = v
     if v then
         setupBonusAutoClick()
     else
         clearConnections()
+    end
+end)
+
+AutoKick:OnChanged(function(v)
+    autoKick = v
+
+    if v then
+        startAutoKick()
+    else
+        stopAutoKick()
     end
 end)
