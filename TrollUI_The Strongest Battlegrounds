@@ -215,13 +215,13 @@ TrollDropdown:OnChanged(function(val)
     trollTargetName = val
 end)
 
-Tabs.Main:AddButton({
+--[[Tabs.Main:AddButton({
     Title = "🔄 Refresh Player List",
     Description = "Update semua dropdown player",
     Callback = function()
         refreshPlayers()
     end
-})
+})]]
 
 --// TOGGLE
 local TrollToggle = Tabs.Main:AddToggle("Troll", {
@@ -282,13 +282,13 @@ ModeDropdown:OnChanged(function(val)
     flingMode = val
 end)
 
-Tabs.Fling:AddButton({
+--[[Tabs.Fling:AddButton({
     Title = "🔄 Refresh Player List",
     Description = "Update semua dropdown player",
     Callback = function()
         refreshPlayers()
     end
-})
+})]]--
 
 -- 🔄 AUTO UPDATE PLAYER LIST (FIX)
 Players.PlayerAdded:Connect(function()
@@ -456,29 +456,34 @@ end
 local function startCounterESP()
     if counterConn then return end
 
-    counterConn = RunService.Heartbeat:Connect(function()
-        if not counterESPEnabled then return end
+    counterConn = task.spawn(function()
+        while counterESPEnabled do
+            local liveFolder = workspace:FindFirstChild("Live")
 
-        local liveFolder = workspace:FindFirstChild("Live")
-        if not liveFolder then return end
-
-        for _, model in pairs(liveFolder:GetChildren()) do
-    		if model:IsA("Model") then
-        		if model ~= player.Character then
-            		if hasCounter(model) then
-                		addHighlight(model)
-            		else
-                		removeHighlight(model)
-            		end
-        		end
-    		end
-		end
-
-        -- cleanup kalau model hilang
-        for model, _ in pairs(counterHighlights) do
-            if not model or not model.Parent then
-                removeHighlight(model)
+            if liveFolder then
+                for _, model in ipairs(liveFolder:GetChildren()) do
+                    if model:IsA("Model") and model ~= player.Character then
+                        if hasCounter(model) then
+                            if not counterHighlights[model] then
+                                addHighlight(model)
+                            end
+                        else
+                            if counterHighlights[model] then
+                                removeHighlight(model)
+                            end
+                        end
+                    end
+                end
             end
+
+            -- cleanup
+            for model in pairs(counterHighlights) do
+                if not model or not model.Parent then
+                    removeHighlight(model)
+                end
+            end
+
+            task.wait(0.1)
         end
     end)
 end
@@ -500,30 +505,33 @@ end
 local function startHunterESP()
     if hunterConn then return end
 
-    hunterConn = RunService.Heartbeat:Connect(function()
-        if not hunterESPEnabled then return end
+    hunterConn = task.spawn(function()
+        while hunterESPEnabled do
+            local liveFolder = workspace:FindFirstChild("Live")
 
-        local liveFolder = workspace:FindFirstChild("Live")
-        if not liveFolder then return end
-
-        for _, model in pairs(liveFolder:GetChildren()) do
-            if model:IsA("Model") then
-                -- 🚫 skip diri sendiri
-                if model ~= player.Character then
-                    if hasHunterCounter(model) then
-                        addHunterHighlight(model)
-                    else
-                        removeHunterHighlight(model)
+            if liveFolder then
+                for _, model in ipairs(liveFolder:GetChildren()) do
+                    if model:IsA("Model") and model ~= player.Character then
+                        if hasHunterCounter(model) then
+                            if not hunterHighlights[model] then
+                                addHunterHighlight(model)
+                            end
+                        else
+                            if hunterHighlights[model] then
+                                removeHunterHighlight(model)
+                            end
+                        end
                     end
                 end
             end
-        end
 
-        -- cleanup
-        for model, _ in pairs(hunterHighlights) do
-            if not model or not model.Parent then
-                removeHunterHighlight(model)
+            for model in pairs(hunterHighlights) do
+                if not model or not model.Parent then
+                    removeHunterHighlight(model)
+                end
             end
+
+            task.wait(0.1)
         end
     end)
 end
@@ -544,15 +552,11 @@ end
 --// FLING BUTTON
 Tabs.Fling:AddButton({
     Title = "Fling Target 😈",
-    Description = "Mode Single / Multi",
     Callback = function()
-
         if flingMode == "Single" then
-            if flingSingleTarget then
-                local target = Players:FindFirstChild(flingSingleTarget)
-                if target then
-                    SkidFling(target)
-                end
+            local target = Players:FindFirstChild(flingSingleTarget)
+            if target then
+                SkidFling(target)
             end
 
         elseif flingMode == "Multi" then
@@ -560,20 +564,17 @@ Tabs.Fling:AddButton({
             FlingActive = true
 
             task.spawn(function()
-                while FlingActive do
-                    for name, _ in pairs(flingMultiTargets) do
-                        local target = Players:FindFirstChild(name)
-                        if target then
-                            task.spawn(function()
-                                SkidFling(target)
-                            end)
-                        end
-                    end
-                    task.wait(0.5)
-                end
-            end)
+                for name in pairs(flingMultiTargets) do
+                    if not FlingActive then break end
 
-            task.delay(5, function()
+                    local target = Players:FindFirstChild(name)
+                    if target then
+                        SkidFling(target)
+                    end
+
+                    task.wait(0.1)
+                end
+
                 FlingActive = false
             end)
         end
