@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
+local playerGui = player.PlayerGui
 
 -- 16.4140701, -10000.0049, 35.0859528, -0.234388381, 0, -0.972143114, 0, 1, 0, 0.972143114, 0, -0.234388381
 
@@ -23,6 +24,7 @@ local Tabs = {
     Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
 	Esp = Window:AddTab({ Title = "ESP", Icon = "bot" }),
 	Fling = Window:AddTab({ Title = "Fling", Icon = "bug" }),
+	Misc = Window:AddTab({ Title = "Misc", Icon = "charge" }),
 }
 
 --//GLOBAL STATE
@@ -576,6 +578,17 @@ Tabs.Fling:AddButton({
             end)
         end
     end
+})
+
+Tabs.Misc:AddButton({
+	Title = "Unlock Second Page",
+    Description = "Unlocking second page emote",
+    Callback = function()
+		playerGui.Emotes.ImageLabel.Gamepass.Visible = false
+		playerGui.Emotes.ImageLabel.GamepassTwo.Visible = false
+		playerGui.Emotes.ImageLabel.Switch.Visible = true
+		playerGui.Emotes.ImageLabel.Switch.Position = UDim2.new(0.5, 0, 0.481000006, 0)
+	end
 })
 
 CounterToggle:OnChanged(function(v)
