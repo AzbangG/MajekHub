@@ -4,12 +4,6 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local RS = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
-local playerGui = player.PlayerGuilocal Players = game:GetService("Players")
-local VirtualUser = game:GetService("VirtualUser")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local RS = game:GetService("ReplicatedStorage")
-
-local player = Players.LocalPlayer
 local playerGui = player.PlayerGui
 
 --// LOAD UI
