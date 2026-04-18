@@ -4,7 +4,252 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local RS = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
+local playerGui = player.PlayerGuilocal Players = game:GetService("Players")
+local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local RS = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
 local playerGui = player.PlayerGui
+
+--// LOAD UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+--// WINDOW
+local Window = Fluent:CreateWindow({
+    Title = "Kick A Lucky Block",
+    SubTitle = "Majek Hub",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(520, 400),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
+}
+
+--// STATE
+local autoClickBonus = false
+local bonusConnections = {}
+local autoKick = false
+local kickConnection = nil
+local autoFarmBlock = false
+local farmConnection = nil
+
+local kickCF = CFrame.new(
+    695.58844, 3.00000691, 231.934326,
+    0.0143117635, 7.11090031e-09, 0.999897599,
+    7.17339077e-09, 1, -7.21430293e-09,
+    -0.999897599, 7.27590521e-09, 0.0143117635
+)
+
+local collectCF = CFrame.new(
+    698.773926, 3.00000691, 302.92746,
+    0.00453668926, -1.8800149e-08, 0.999989688,
+    1.56144679e-08, 1, 1.87295033e-08,
+    -0.999989688, 1.55293378e-08, 0.00453668926
+)
+
+--// ================= UI =================
+local AutoClick = Tabs.Main:AddToggle("Auto", {
+    Title = "Auto Click",
+	Description = "Auto 2x(Bonus) while training",
+    Default = false
+})
+
+local AutoKick = Tabs.Main:AddToggle("AutoKick", {
+    Title = "Auto Kick",
+    Description = "Auto kick when bar is full",
+    Default = false
+})
+
+local AutoFarm = Tabs.Main:AddToggle("AutoFarm", {
+    Title = "Auto Farm",
+    Description = "Auto farm block(Auto Kick ON)",
+    Default = false
+})
+
+--// FUNCTION AUTO CLICK BONUS
+local function clearConnections()
+    for _, conn in ipairs(bonusConnections) do
+        if conn and conn.Disconnect then
+            conn:Disconnect()
+        end
+    end
+    table.clear(bonusConnections)
+end
+
+local function clickCenterScreen()
+    local camera = workspace.CurrentCamera
+    local viewport = camera.ViewportSize
+
+    local x = viewport.X / 2
+    local y = viewport.Y / 2
+
+    -- klik tengah layar
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+    task.wait(0.05)
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+end
+
+local function teleport(cf)
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.CFrame = cf
+    end
+end
+
+local function pressO()
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.ButtonB, false, game)
+    task.wait(0.1)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.ButtonB, false, game)
+end
+
+local function clickButton(button)
+    if not button or not button.Visible then return end
+
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.ButtonB, false, game)
+    task.wait(0.1)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.ButtonB, false, game)
+end
+
+local function setupBonusAutoClick()
+    clearConnections()
+
+    local kickGui = playerGui:WaitForChild("KickUpgrades")
+
+    local function hookBonus(button)
+        if not button:IsA("GuiButton") then return end
+
+        local conn = button:GetPropertyChangedSignal("Visible"):Connect(function()
+            if autoClickBonus and button.Visible then
+                task.wait(0.1)
+                pcall(function()
+                    clickButton(button)
+                end)
+            end
+        end)
+
+        table.insert(bonusConnections, conn)
+
+        -- kalau sudah visible
+        if autoClickBonus and button.Visible then
+            task.wait(0.1)
+            pcall(function()
+                clickButton(button)
+            end)
+        end
+    end
+
+    for _, v in ipairs(kickGui:GetDescendants()) do
+        if v.Name == "Bonus" then
+            hookBonus(v)
+        end
+    end
+
+    local addedConn = kickGui.DescendantAdded:Connect(function(v)
+        if v.Name == "Bonus" then
+            task.wait()
+            hookBonus(v)
+        end
+    end)
+
+    table.insert(bonusConnections, addedConn)
+end
+
+local function startAutoKick()
+    local movingBar = playerGui:WaitForChild("KickMinigame")
+        :WaitForChild("Bar")
+        :WaitForChild("MovingBar")
+
+    kickConnection = movingBar:GetPropertyChangedSignal("Size"):Connect(function()
+        if not autoKick then return end
+
+        local size = movingBar.Size
+
+        -- langsung klik tanpa delay
+        if size.X.Scale >= 1 and size.Y.Scale >= 1 then
+            clickCenterScreen()
+        end
+    end)
+end
+
+local function stopAutoKick()
+    if kickConnection then
+        kickConnection:Disconnect()
+        kickConnection = nil
+    end
+end
+
+local function startAutoFarm()
+    if farmConnection then return end
+
+    farmConnection = task.spawn(function()
+        local waves = workspace:WaitForChild("Waves")
+
+        while autoFarmBlock do
+            teleport(kickCF)
+            task.wait(0.2)
+            pressO()
+
+            repeat task.wait() until #waves:GetChildren() > 0 or not autoFarmBlock
+            if not autoFarmBlock then break end
+
+            teleport(collectCF)
+
+            repeat task.wait() until #waves:GetChildren() == 0 or not autoFarmBlock
+            if not autoFarmBlock then break end
+        end
+    end)
+end
+
+local function stopAutoFarm()
+    autoFarmBlock = false
+    farmConnection = nil
+end
+
+AutoClick:OnChanged(function(v)
+    autoClickBonus = v
+    if v then
+        setupBonusAutoClick()
+    else
+        clearConnections()
+    end
+end)
+
+AutoKick:OnChanged(function(v)
+    autoKick = v
+
+    if v then
+        startAutoKick()
+    else
+        stopAutoKick()
+    end
+end)
+
+AutoFarm:OnChanged(function(v)
+    autoFarmBlock = v
+
+    if v then
+        startAutoFarm()
+    else
+        stopAutoFarm()
+    end
+end)
+
+Tabs.Main:AddButton({
+    Title = "Teleport 🌌",
+    Description = "Move you to kick/safe zone",
+    Callback = function()
+        local char = player.Character or player.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart")
+
+        hrp.CFrame = CFrame.new(695.58844, 3.00000691, 231.934326, 0.0143117635, 7.11090031e-09, 0.999897599, 7.17339077e-09, 1, -7.21430293e-09, -0.999897599, 7.27590521e-09, 0.0143117635)
+    end
+})
 
 --// LOAD UI
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
