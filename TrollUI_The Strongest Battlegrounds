@@ -72,16 +72,9 @@ local flingSingleTarget = nil
 local flingMultiTargets = {}
 local flingMode = "Single"
 
-local counterESPEnabled = false
-local counterConn = nil
+local espESPEnabled = false
 local counterHighlights = {}
-
-local hunterESPEnabled = false
-local hunterConn = nil
 local hunterHighlights = {}
-
-local atomicESPEnabled = false
-local atomicConn = nil
 local atomicHighlights = {}
 
 local espRegistry = {
@@ -374,18 +367,8 @@ local ModeDropdown = Tabs.Fling:AddDropdown("FlingMode", {
 })
 ModeDropdown:OnChanged(function(val) flingMode = val end)
 
-local CounterToggle = Tabs.Esp:AddToggle("CounterESP", {
-    Title = "Detect Death Counter 🔴",
-    Default = false
-})
-
-local HunterToggle = Tabs.Esp:AddToggle("HunterESP", {
-    Title = "Detect Garou Counter 🔵",
-    Default = false
-})
-
-local AtomicToggle = Tabs.Esp:AddToggle("AtomicESP", {
-    Title = "Detect Samurai Counter 🟠",
+local ESPToggle = Tabs.Esp:AddToggle("AllESP", {
+    Title = "Detect All Counter 🔴🔵🟠",
     Default = false
 })
 
@@ -604,27 +587,20 @@ local function stopESPWatcher()
     espWatcherConns = {}
 end
 
-registerESP("Counter",       counterHighlights, addHighlight,       removeHighlight)
-registerESP("HunterCounter", hunterHighlights,  addHunterHighlight, removeHunterHighlight)
-registerESP("AtomicCounter", atomicHighlights,  addAtomicHighlight, removeAtomicHighlight)
-
-local function onESPToggle(enabled, highlights, removeFn)
-    if enabled then
-        espEnabledCount += 1
-        if espEnabledCount == 1 then
-            startESPWatcher() -- mulai watcher saat ESP pertama aktif
-        end
-    else
-        -- hapus highlight jenis ini
-        for model in pairs(highlights) do
-            removeFn(model)
-        end
-        espEnabledCount = math.max(0, espEnabledCount - 1)
-        if espEnabledCount == 0 then
-            stopESPWatcher() -- stop watcher jika semua ESP mati
+local function checkAllESP(model)
+    if not espESPEnabled then return end
+    for _, esp in ipairs(espRegistry) do
+        if model:FindFirstChild(esp.name, true) then
+            esp.addFn(model)
+        else
+            esp.removeFn(model)
         end
     end
 end
+
+registerESP("Counter",       counterHighlights, addHighlight,       removeHighlight)
+registerESP("HunterCounter", hunterHighlights,  addHunterHighlight, removeHunterHighlight)
+registerESP("AtomicCounter", atomicHighlights,  addAtomicHighlight, removeAtomicHighlight)
 
 --// FLING BUTTON
 Tabs.Fling:AddButton({
@@ -660,19 +636,19 @@ Tabs.Misc:AddButton({
     end
 })
 
-CounterToggle:OnChanged(function(v)
-    counterESPEnabled = v
-    onESPToggle(v, counterHighlights, removeHighlight)
-end)
-
-HunterToggle:OnChanged(function(v)
-    hunterESPEnabled = v
-    onESPToggle(v, hunterHighlights, removeHunterHighlight)
-end)
-
-AtomicToggle:OnChanged(function(v)
-    atomicESPEnabled = v
-    onESPToggle(v, atomicHighlights, removeAtomicHighlight)
+ESPToggle:OnChanged(function(v)
+    espESPEnabled = v
+    if v then
+        espEnabledCount = 1
+        startESPWatcher()
+    else
+        espEnabledCount = 0
+        stopESPWatcher()
+        -- hapus semua highlight
+        for model in pairs(counterHighlights) do removeHighlight(model) end
+        for model in pairs(hunterHighlights) do removeHunterHighlight(model) end
+        for model in pairs(atomicHighlights) do removeAtomicHighlight(model) end
+    end
 end)
 
 KeybindToggle:OnChanged(function(v)
