@@ -84,6 +84,13 @@ local atomicESPEnabled = false
 local atomicConn = nil
 local atomicHighlights = {}
 
+local espRegistry = {
+    -- { counterName, highlights, addFn, removeFn, enabled }
+}
+local espWatcherConns = {}
+local espActive = false
+local espEnabledCount = 0
+
 local keybindEnabled = false
 local lockOnEnabled = false
 local lockOnTarget = nil
@@ -496,116 +503,126 @@ local function SkidFling(TargetPlayer)
     end
 end
 
---// ESP (EVENT-DRIVEN, OPTIMIZED)
-local function setupESP(highlights, counterName, addFn, removeFn)
-    local conns = {}
-    local liveFolder = workspace:FindFirstChild("Live")
-    if not liveFolder then return conns end
+local function registerESP(counterName, highlights, addFn, removeFn)
+    table.insert(espRegistry, {
+        name = counterName,
+        highlights = highlights,
+        addFn = addFn,
+        removeFn = removeFn,
+    })
+end
 
-    local function watchModel(model)
-        if not model:IsA("Model") or model == player.Character then return end
-
-        -- cek langsung saat dipasang
-        if model:FindFirstChild(counterName, true) then
-            addFn(model)
+local function checkAllESP(model)
+    for _, esp in ipairs(espRegistry) do
+        if model:FindFirstChild(esp.name, true) then
+            esp.addFn(model)
+        else
+            esp.removeFn(model)
         end
+    end
+end
 
-        -- hanya trigger saat Counter-nya yang muncul
-        table.insert(conns, model.DescendantAdded:Connect(function(desc)
-            if desc.Name == counterName then
-                addFn(model)
+local function watchModel(model)
+    if not model:IsA("Model") or model == player.Character then return end
+
+    -- cek saat pertama dipasang
+    checkAllESP(model)
+
+    -- 1 listener DescendantAdded untuk semua jenis counter
+    table.insert(espWatcherConns, model.DescendantAdded:Connect(function(desc)
+        for _, esp in ipairs(espRegistry) do
+            if desc.Name == esp.name then
+                esp.addFn(model)
+                break
             end
-        end))
+        end
+    end))
 
-        -- hanya trigger saat Counter-nya yang hilang
-        table.insert(conns, model.DescendantRemoving:Connect(function(desc)
-            if desc.Name == counterName then
+    -- 1 listener DescendantRemoving untuk semua jenis counter
+    table.insert(espWatcherConns, model.DescendantRemoving:Connect(function(desc)
+        for _, esp in ipairs(espRegistry) do
+            if desc.Name == esp.name then
                 task.defer(function()
-                    -- pastikan model masih ada & counter benar-benar sudah tidak ada
-                    if model and model.Parent and not model:FindFirstChild(counterName, true) then
-                        removeFn(model)
+                    if model and model.Parent and not model:FindFirstChild(esp.name, true) then
+                        esp.removeFn(model)
                     end
                 end)
+                break
             end
-        end))
-    end
+        end
+    end))
+end
 
+local function startESPWatcher()
+    if espActive then return end
+    espActive = true
+
+    local liveFolder = workspace:FindFirstChild("Live")
+    if not liveFolder then return end
+
+    -- scan awal
     for _, model in ipairs(liveFolder:GetChildren()) do
         watchModel(model)
     end
 
-    table.insert(conns, liveFolder.ChildAdded:Connect(function(model)
+    -- 1 ChildAdded untuk semua ESP
+    table.insert(espWatcherConns, liveFolder.ChildAdded:Connect(function(model)
         watchModel(model)
     end))
 
-    table.insert(conns, liveFolder.ChildRemoved:Connect(function(model)
-        removeFn(model)
+    -- 1 ChildRemoved untuk semua ESP
+    table.insert(espWatcherConns, liveFolder.ChildRemoved:Connect(function(model)
+        for _, esp in ipairs(espRegistry) do
+            esp.removeFn(model)
+        end
     end))
 
-    -- fallback cleanup tiap 1 detik
-    table.insert(conns, task.spawn(function()
-        while true do
+    -- 1 fallback cleanup untuk semua ESP
+    table.insert(espWatcherConns, task.spawn(function()
+        while espActive do
             task.wait(1)
-            for model in pairs(highlights) do
-                if not model or not model.Parent then
-                    removeFn(model)
+            for _, esp in ipairs(espRegistry) do
+                for model in pairs(esp.highlights) do
+                    if not model or not model.Parent then
+                        esp.removeFn(model)
+                    end
                 end
             end
         end
     end))
-
-    return conns
 end
 
-local function stopESP(conns, highlights, removeFn)
-    for _, c in ipairs(conns) do
+local function stopESPWatcher()
+    espActive = false
+    for _, c in ipairs(espWatcherConns) do
         if typeof(c) == "RBXScriptConnection" then
             c:Disconnect()
         elseif typeof(c) == "thread" then
             task.cancel(c)
         end
     end
-    for model in pairs(highlights) do
-        removeFn(model)
-    end
+    espWatcherConns = {}
 end
 
-local function startCounterESP()
-    if counterConn then return end
-    counterConn = setupESP(counterHighlights, "Counter", addHighlight, removeHighlight)
-end
+registerESP("Counter",       counterHighlights, addHighlight,       removeHighlight)
+registerESP("HunterCounter", hunterHighlights,  addHunterHighlight, removeHunterHighlight)
+registerESP("AtomicCounter", atomicHighlights,  addAtomicHighlight, removeAtomicHighlight)
 
-local function startHunterESP()
-    if hunterConn then return end
-    hunterConn = setupESP(hunterHighlights, "HunterCounter", addHunterHighlight, removeHunterHighlight)
-end
-
-local function startAtomicESP()
-    if atomicConn then return end
-    atomicConn = setupESP(atomicHighlights, "AtomicCounter", addAtomicHighlight, removeAtomicHighlight)
-end
-
-local function stopCounterESP()
-    counterESPEnabled = false
-    if counterConn then
-        stopESP(counterConn, counterHighlights, removeHighlight)
-        counterConn = nil
-    end
-end
-
-local function stopHunterESP()
-    hunterESPEnabled = false
-    if hunterConn then
-        stopESP(hunterConn, hunterHighlights, removeHunterHighlight)
-        hunterConn = nil
-    end
-end
-
-local function stopAtomicESP()
-    atomicESPEnabled = false
-    if atomicConn then
-        stopESP(atomicConn, atomicHighlights, removeAtomicHighlight)
-        atomicConn = nil
+local function onESPToggle(enabled, highlights, removeFn)
+    if enabled then
+        espEnabledCount += 1
+        if espEnabledCount == 1 then
+            startESPWatcher() -- mulai watcher saat ESP pertama aktif
+        end
+    else
+        -- hapus highlight jenis ini
+        for model in pairs(highlights) do
+            removeFn(model)
+        end
+        espEnabledCount = math.max(0, espEnabledCount - 1)
+        if espEnabledCount == 0 then
+            stopESPWatcher() -- stop watcher jika semua ESP mati
+        end
     end
 end
 
@@ -645,17 +662,17 @@ Tabs.Misc:AddButton({
 
 CounterToggle:OnChanged(function(v)
     counterESPEnabled = v
-    if v then startCounterESP() else stopCounterESP() end
+    onESPToggle(v, counterHighlights, removeHighlight)
 end)
 
 HunterToggle:OnChanged(function(v)
     hunterESPEnabled = v
-    if v then startHunterESP() else stopHunterESP() end
+    onESPToggle(v, hunterHighlights, removeHunterHighlight)
 end)
 
 AtomicToggle:OnChanged(function(v)
     atomicESPEnabled = v
-    if v then startAtomicESP() else stopAtomicESP() end
+    onESPToggle(v, atomicHighlights, removeAtomicHighlight)
 end)
 
 KeybindToggle:OnChanged(function(v)
