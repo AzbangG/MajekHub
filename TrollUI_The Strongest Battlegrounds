@@ -1,9 +1,11 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local RS = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 --// LOAD UI
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()--require(RS.Modules.Fluent)
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))() --require(RS.Modules.Fluent)
 
 local player = Players.LocalPlayer
 local playerGui = player.PlayerGui
@@ -83,6 +85,10 @@ local hunterESPEnabled = false
 local hunterConn = nil
 local hunterHighlights = {}
 
+local keybindEnabled = false
+local keybindConn1
+local keybindConn2
+
 --// HELPERS
 local function getTrollTargetHRP()
     if not trollTargetName then return end
@@ -115,6 +121,38 @@ end
 local function getHRP()
     local char = player.Character or player.CharacterAdded:Wait()
     return char:WaitForChild("HumanoidRootPart")
+end
+
+local function startKeybind()
+    if keybindConn1 then return end
+
+    keybindConn1 = UserInputService.InputBegan:Connect(function(input, gp)
+        if gp or not keybindEnabled then return end
+
+        if input.KeyCode == Enum.KeyCode.R then
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.ButtonL3, false, game)
+        end
+    end)
+
+    keybindConn2 = UserInputService.InputEnded:Connect(function(input)
+        if not keybindEnabled then return end
+
+        if input.KeyCode == Enum.KeyCode.R then
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.ButtonL3, false, game)
+        end
+    end)
+end
+
+local function stopKeybind()
+    if keybindConn1 then
+        keybindConn1:Disconnect()
+        keybindConn1 = nil
+    end
+
+    if keybindConn2 then
+        keybindConn2:Disconnect()
+        keybindConn2 = nil
+    end
 end
 
 --// HIGHLIGHT
@@ -232,6 +270,11 @@ Tabs.Main:AddButton({
             workspace.FallenPartsDestroyHeight = old
         end
     end
+})
+
+local KeybindToggle = Tabs.Main:AddToggle("Keybind", {
+    Title = "Enable Lock On (Enemy)",
+    Default = false
 })
 
 local ModeDropdown = Tabs.Fling:AddDropdown("FlingMode", {
@@ -508,6 +551,11 @@ end)
 HunterToggle:OnChanged(function(v)
     hunterESPEnabled = v
     if v then startHunterESP() else stopHunterESP() end
+end)
+
+KeybindToggle:OnChanged(function(v)
+    keybindEnabled = v
+    if v then startKeybind() else stopKeybind() end
 end)
 
 --// NOTIF
