@@ -11,7 +11,7 @@ local playerGui = player.PlayerGui
 --// WINDOW
 local Window = Fluent:CreateWindow({
     Title = "Troll UI",
-    SubTitle = "Majek_b",
+    SubTitle = "Majek Hub",
     TabWidth = 160,
     Size = UDim2.fromOffset(500, 350),
     Acrylic = true,
