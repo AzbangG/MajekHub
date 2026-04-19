@@ -32,11 +32,6 @@ local Tabs = {
 getgenv().OldPos = nil
 getgenv().FPDH = workspace.FallenPartsDestroyHeight
 
-player.CharacterAdded:Connect(function()
-    task.wait(1)
-    workspace.FallenPartsDestroyHeight = 0/0
-end)
-
 --// VOID PLATFORM
 local voidPart
 
@@ -85,9 +80,15 @@ local hunterESPEnabled = false
 local hunterConn = nil
 local hunterHighlights = {}
 
+local atomicESPEnabled = false
+local atomicConn = nil
+local atomicHighlights = {}
+
 local keybindEnabled = false
-local keybindConn1
-local keybindConn2
+local lockOnEnabled = false
+local lockOnTarget = nil
+local lockOnConn = nil
+local defaultSubject = nil
 
 --// HELPERS
 local function getTrollTargetHRP()
@@ -118,41 +119,102 @@ local function hasHunterCounter(model)
     return model:FindFirstChild("HunterCounter", true) ~= nil
 end
 
+local function hasAtomicCounter(model)
+    return model:FindFirstChild("AtomicCounter", true) ~= nil
+end
+
 local function getHRP()
     local char = player.Character or player.CharacterAdded:Wait()
     return char:WaitForChild("HumanoidRootPart")
 end
 
-local function startKeybind()
-    if keybindConn1 then return end
+local function findLockOnTarget()
+    local char = player.Character
+    if not char then return nil end
+    local myRoot = char:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
 
-    keybindConn1 = UserInputService.InputBegan:Connect(function(input, gp)
-        if gp or not keybindEnabled then return end
+    local nearest = nil
+    local nearestDist = math.huge
 
-        if input.KeyCode == Enum.KeyCode.R then
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.ButtonL3, false, game)
+    for _, otherPlayer in pairs(Players:GetPlayers()) do
+        if otherPlayer == player then continue end
+
+        local otherChar = otherPlayer.Character
+        if not otherChar then continue end
+
+        local humanoid = otherChar:FindFirstChildOfClass("Humanoid")
+        local otherRoot = otherChar:FindFirstChild("HumanoidRootPart")
+
+        if not humanoid or not otherRoot then continue end
+        if humanoid.Health <= 0 then continue end
+
+        local dist = (otherRoot.Position - myRoot.Position).Magnitude
+        if dist < nearestDist then
+            nearestDist = dist
+            nearest = otherChar
         end
-    end)
+    end
 
-    keybindConn2 = UserInputService.InputEnded:Connect(function(input)
-        if not keybindEnabled then return end
-
-        if input.KeyCode == Enum.KeyCode.R then
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.ButtonL3, false, game)
-        end
-    end)
+    return nearest
 end
 
-local function stopKeybind()
-    if keybindConn1 then
-        keybindConn1:Disconnect()
-        keybindConn1 = nil
+local function startLockOn(targetChar)
+    local camera = workspace.CurrentCamera
+    local humanoid = targetChar:FindFirstChildOfClass("Humanoid")
+    local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+
+    if not humanoid or not targetRoot then return end
+
+    lockOnTarget = targetChar
+    lockOnEnabled = true
+
+    -- Simpan subject asli sebelum diganti
+    defaultSubject = camera.CameraSubject
+
+    -- Arahkan kamera ke humanoid target (tetap Custom mode)
+    camera.CameraSubject = humanoid
+
+    -- Monitor jika target mati / keluar
+    lockOnConn = RunService.RenderStepped:Connect(function()
+    if not lockOnEnabled then return end
+
+    local hum = lockOnTarget and lockOnTarget:FindFirstChildOfClass("Humanoid")
+    local root = lockOnTarget and lockOnTarget:FindFirstChild("HumanoidRootPart")
+
+    if not hum or not root or hum.Health <= 0 or not lockOnTarget.Parent then
+        stopLockOn()
+        return
     end
 
-    if keybindConn2 then
-        keybindConn2:Disconnect()
-        keybindConn2 = nil
+    local camera = workspace.CurrentCamera
+    local currentCF = camera.CFrame
+
+    local camOffset = currentCF.LookVector * -10 + Vector3.new(0, 3, 0)
+    local newPosition = root.Position + camOffset
+
+    local smoothPosition = currentCF.Position:Lerp(newPosition, 0.2)
+
+    camera.CFrame = CFrame.new(smoothPosition, root.Position + Vector3.new(0, 1.5, 0))
+	end)
+end
+
+function stopLockOn()
+    lockOnEnabled = false
+    lockOnTarget = nil
+
+    if lockOnConn then
+        lockOnConn:Disconnect()
+        lockOnConn = nil
     end
+
+    -- Kembalikan CameraSubject ke humanoid karakter sendiri
+    local camera = workspace.CurrentCamera
+    local myChar = player.Character
+    local myHumanoid = myChar and myChar:FindFirstChildOfClass("Humanoid")
+
+    camera.CameraSubject = myHumanoid or defaultSubject
+    defaultSubject = nil
 end
 
 --// HIGHLIGHT
@@ -193,6 +255,26 @@ local function removeHunterHighlight(model)
     if hunterHighlights[model] then
         hunterHighlights[model]:Destroy()
         hunterHighlights[model] = nil
+    end
+end
+
+local function addAtomicHighlight(model)
+    if atomicHighlights[model] then return end
+    local hl = Instance.new("Highlight")
+    hl.FillColor = Color3.fromRGB(255, 140, 0) -- 🟠 oranye
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.FillTransparency = 0.3
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = model
+    hl.Parent = model
+    atomicHighlights[model] = hl
+end
+
+local function removeAtomicHighlight(model)
+    if atomicHighlights[model] then
+        atomicHighlights[model]:Destroy()
+        atomicHighlights[model] = nil
     end
 end
 
@@ -292,6 +374,11 @@ local CounterToggle = Tabs.Esp:AddToggle("CounterESP", {
 
 local HunterToggle = Tabs.Esp:AddToggle("HunterESP", {
     Title = "Detect Garou Counter 🔵",
+    Default = false
+})
+
+local AtomicToggle = Tabs.Esp:AddToggle("AtomicESP", {
+    Title = "Detect Samurai Counter 🟠",
     Default = false
 })
 
@@ -493,6 +580,11 @@ local function startHunterESP()
     hunterConn = setupESP(hunterHighlights, "HunterCounter", addHunterHighlight, removeHunterHighlight)
 end
 
+local function startAtomicESP()
+    if atomicConn then return end
+    atomicConn = setupESP(atomicHighlights, "AtomicCounter", addAtomicHighlight, removeAtomicHighlight)
+end
+
 local function stopCounterESP()
     counterESPEnabled = false
     if counterConn then
@@ -506,6 +598,14 @@ local function stopHunterESP()
     if hunterConn then
         stopESP(hunterConn, hunterHighlights, removeHunterHighlight)
         hunterConn = nil
+    end
+end
+
+local function stopAtomicESP()
+    atomicESPEnabled = false
+    if atomicConn then
+        stopESP(atomicConn, atomicHighlights, removeAtomicHighlight)
+        atomicConn = nil
     end
 end
 
@@ -553,9 +653,36 @@ HunterToggle:OnChanged(function(v)
     if v then startHunterESP() else stopHunterESP() end
 end)
 
+AtomicToggle:OnChanged(function(v)
+    atomicESPEnabled = v
+    if v then startAtomicESP() else stopAtomicESP() end
+end)
+
 KeybindToggle:OnChanged(function(v)
     keybindEnabled = v
-    if v then startKeybind() else stopKeybind() end
+end)
+
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if not keybindEnabled then return end
+    if input.KeyCode ~= Enum.KeyCode.R then return end
+
+    if lockOnEnabled then
+        stopLockOn()
+    else
+        local target = findLockOnTarget()
+        if target then
+            startLockOn(target)
+        end
+    end
+end)
+
+player.CharacterAdded:Connect(function(char)
+	workspace.FallenPartsDestroyHeight = 0/0
+    if lockOnEnabled then
+        stopLockOn()
+    end
 end)
 
 --// NOTIF
