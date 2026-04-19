@@ -1,18 +1,17 @@
---// LOAD UI
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
+
+--// LOAD UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()--require(RS.Modules.Fluent)
 
 local player = Players.LocalPlayer
 local playerGui = player.PlayerGui
 
--- 16.4140701, -10000.0049, 35.0859528, -0.234388381, 0, -0.972143114, 0, 1, 0, 0.972143114, 0, -0.234388381
-
 --// WINDOW
 local Window = Fluent:CreateWindow({
     Title = "Troll UI",
-    SubTitle = "Majek Hub",
+    SubTitle = "Majek_b",
     TabWidth = 160,
     Size = UDim2.fromOffset(500, 350),
     Acrylic = true,
@@ -22,16 +21,16 @@ local Window = Fluent:CreateWindow({
 
 local Tabs = {
     Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
-	Esp = Window:AddTab({ Title = "ESP", Icon = "bot" }),
-	Fling = Window:AddTab({ Title = "Fling", Icon = "bug" }),
-	Misc = Window:AddTab({ Title = "Misc", Icon = "charge" }),
+    Esp  = Window:AddTab({ Title = "ESP",  Icon = "bot" }),
+    Fling = Window:AddTab({ Title = "Fling", Icon = "bug" }),
+    Misc = Window:AddTab({ Title = "Misc", Icon = "charge" }),
 }
 
---//GLOBAL STATE
+--// GLOBAL STATE
 getgenv().OldPos = nil
 getgenv().FPDH = workspace.FallenPartsDestroyHeight
 
-player.CharacterAdded:Connect(function(char)
+player.CharacterAdded:Connect(function()
     task.wait(1)
     workspace.FallenPartsDestroyHeight = 0/0
 end)
@@ -43,26 +42,24 @@ local function createVoidPart()
     if voidPart then return end
 
     voidPart = Instance.new("Part")
-    voidPart.Size = Vector3.new(100, 5, 100) -- luas
+    voidPart.Size = Vector3.new(100, 5, 100)
     voidPart.Anchored = true
     voidPart.CanCollide = true
-	voidPart.CanTouch = true
-	voidPart.CanQuery = true
-	voidPart.Massless = true
-	voidPart.Material = Enum.Material.Neon
-	voidPart.TopSurface = Enum.SurfaceType.Smooth
-	voidPart.BottomSurface = Enum.SurfaceType.Smooth
+    voidPart.CanTouch = true
+    voidPart.CanQuery = true
+    voidPart.Massless = true
+    voidPart.Material = Enum.Material.Neon
+    voidPart.TopSurface = Enum.SurfaceType.Smooth
+    voidPart.BottomSurface = Enum.SurfaceType.Smooth
     voidPart.Transparency = 0.2
     voidPart.Color = Color3.fromRGB(0, 0, 0)
     voidPart.Name = "TrollVoidPlatform"
-
     voidPart.CFrame = CFrame.new(
         16.4140701, -10000.0049, 35.0859528,
         -0.234388381, 0, -0.972143114,
         0, 1, 0,
         0.972143114, 0, -0.234388381
     )
-
     voidPart.Parent = workspace
 end
 
@@ -79,27 +76,23 @@ local flingMultiTargets = {}
 local flingMode = "Single"
 
 local counterESPEnabled = false
-local counterConn
+local counterConn = nil
 local counterHighlights = {}
 
 local hunterESPEnabled = false
-local hunterConn
+local hunterConn = nil
 local hunterHighlights = {}
 
---// GET HRP
+--// HELPERS
 local function getTrollTargetHRP()
     if not trollTargetName then return end
-
     local target = Players:FindFirstChild(trollTargetName)
     if not target then return end
-
     local char = target.Character
     if not char then return end
-
     return char:FindFirstChild("HumanoidRootPart")
 end
 
---// PLAYER LIST
 local function getPlayerList()
     local list = {}
     for _, p in pairs(Players:GetPlayers()) do
@@ -107,30 +100,26 @@ local function getPlayerList()
             table.insert(list, p.Name)
         end
     end
-	print("REFRESHING...")
+    print("REFRESHING...")
     return list
 end
 
 local function hasCounter(model)
-    if model:FindFirstChild("Counter", true) then
-        return true
-    end
-    return false
+    return model:FindFirstChild("Counter", true) ~= nil
 end
 
 local function hasHunterCounter(model)
     return model:FindFirstChild("HunterCounter", true) ~= nil
 end
 
---// GET HRP 
 local function getHRP()
-	local char = player.Character or player.CharacterAdded:Wait()
-	return char:WaitForChild("HumanoidRootPart")
+    local char = player.Character or player.CharacterAdded:Wait()
+    return char:WaitForChild("HumanoidRootPart")
 end
 
+--// HIGHLIGHT
 local function addHighlight(model)
     if counterHighlights[model] then return end
-
     local hl = Instance.new("Highlight")
     hl.FillColor = Color3.fromRGB(255, 0, 0)
     hl.OutlineColor = Color3.fromRGB(255, 255, 255)
@@ -139,22 +128,26 @@ local function addHighlight(model)
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     hl.Adornee = model
     hl.Parent = model
-
     counterHighlights[model] = hl
+end
+
+local function removeHighlight(model)
+    if counterHighlights[model] then
+        counterHighlights[model]:Destroy()
+        counterHighlights[model] = nil
+    end
 end
 
 local function addHunterHighlight(model)
     if hunterHighlights[model] then return end
-
     local hl = Instance.new("Highlight")
-    hl.FillColor = Color3.fromRGB(0, 170, 255) -- 🔵 biru
+    hl.FillColor = Color3.fromRGB(0, 170, 255)
     hl.OutlineColor = Color3.fromRGB(255, 255, 255)
     hl.FillTransparency = 0.3
     hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     hl.Adornee = model
     hl.Parent = model
-
     hunterHighlights[model] = hl
 end
 
@@ -165,14 +158,7 @@ local function removeHunterHighlight(model)
     end
 end
 
-local function removeHighlight(model)
-    if counterHighlights[model] then
-        counterHighlights[model]:Destroy()
-        counterHighlights[model] = nil
-    end
-end
-
---// DROPDOWN TROLL
+--// DROPDOWNS
 local TrollDropdown = Tabs.Main:AddDropdown("TrollPlayer", {
     Title = "Troll Target",
     Values = getPlayerList(),
@@ -180,7 +166,6 @@ local TrollDropdown = Tabs.Main:AddDropdown("TrollPlayer", {
     Default = nil
 })
 
---// SINGLE TARGET
 local FlingSingleDropdown = Tabs.Fling:AddDropdown("FlingSingle", {
     Title = "Fling Single Target",
     Values = getPlayerList(),
@@ -188,7 +173,6 @@ local FlingSingleDropdown = Tabs.Fling:AddDropdown("FlingSingle", {
     Default = nil
 })
 
---// MULTI TARGET
 local FlingMultiDropdown = Tabs.Fling:AddDropdown("FlingMulti", {
     Title = "Fling Multi Target",
     Values = getPlayerList(),
@@ -196,34 +180,28 @@ local FlingMultiDropdown = Tabs.Fling:AddDropdown("FlingMulti", {
     Default = {}
 })
 
---// AUTO UPDATE PLAYER LIST
 local function refreshPlayers()
     local list = getPlayerList()
-
-    if TrollDropdown then
-        TrollDropdown:SetValues(list)
-    end
-    if FlingSingleDropdown then
-        FlingSingleDropdown:SetValues(list)
-    end
-    if FlingMultiDropdown then
-        FlingMultiDropdown:SetValue(list)
-    end
+    if TrollDropdown then TrollDropdown:SetValues(list) end
+    if FlingSingleDropdown then FlingSingleDropdown:SetValues(list) end
+    if FlingMultiDropdown then FlingMultiDropdown:SetValue(list) end
 end
 
-TrollDropdown:OnChanged(function(val)
-    trollTargetName = val
+TrollDropdown:OnChanged(function(val) trollTargetName = val end)
+FlingSingleDropdown:OnChanged(function(val) flingSingleTarget = val end)
+FlingMultiDropdown:OnChanged(function(val) flingMultiTargets = val end)
+
+Players.PlayerAdded:Connect(function()
+    task.wait(0.2)
+    refreshPlayers()
 end)
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.2)
+    refreshPlayers()
+end)
+task.delay(0.5, refreshPlayers)
 
---[[Tabs.Main:AddButton({
-    Title = "🔄 Refresh Player List",
-    Description = "Update semua dropdown player",
-    Callback = function()
-        refreshPlayers()
-    end
-})]]
-
---// TOGGLE
+--// TROLL TOGGLE
 local TrollToggle = Tabs.Main:AddToggle("Troll", {
     Title = "Enable Troll (Behind)",
     Default = false
@@ -235,42 +213,26 @@ Tabs.Main:AddButton({
     Callback = function()
         local char = player.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-
         if char and voidPart and hum then
             local old = workspace.FallenPartsDestroyHeight
             workspace.FallenPartsDestroyHeight = 0/0
-
             for _, v in pairs(char:GetDescendants()) do
                 if v:IsA("BasePart") then
                     v.Velocity = Vector3.zero
                     v.RotVelocity = Vector3.zero
                 end
             end
-
             hum:ChangeState(Enum.HumanoidStateType.Physics)
-
             task.wait()
-
             char:PivotTo(voidPart.CFrame + Vector3.new(0, 100, 0))
-			task.wait(0.2)
-			char:PivotTo(voidPart.CFrame + Vector3.new(0, 10, 0))
-
+            task.wait(0.2)
+            char:PivotTo(voidPart.CFrame + Vector3.new(0, 10, 0))
             task.wait(0.3)
-
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-
             workspace.FallenPartsDestroyHeight = old
         end
     end
 })
-
-FlingSingleDropdown:OnChanged(function(val)
-    flingSingleTarget = val
-end)
-
-FlingMultiDropdown:OnChanged(function(val)
-    flingMultiTargets = val -- table
-end)
 
 local ModeDropdown = Tabs.Fling:AddDropdown("FlingMode", {
     Title = "Fling Mode",
@@ -278,31 +240,7 @@ local ModeDropdown = Tabs.Fling:AddDropdown("FlingMode", {
     Multi = false,
     Default = "Single"
 })
-ModeDropdown:OnChanged(function(val)
-    flingMode = val
-end)
-
---[[Tabs.Fling:AddButton({
-    Title = "🔄 Refresh Player List",
-    Description = "Update semua dropdown player",
-    Callback = function()
-        refreshPlayers()
-    end
-})]]--
-
--- 🔄 AUTO UPDATE PLAYER LIST (FIX)
-Players.PlayerAdded:Connect(function()
-    task.wait(0.2) -- biar player fully loaded
-    refreshPlayers()
-end)
-
-Players.PlayerRemoving:Connect(function()
-    task.wait(0.2)
-    refreshPlayers()
-end)
-
--- 🔥 INITIAL REFRESH (PENTING)
-task.delay(0.5, refreshPlayers)
+ModeDropdown:OnChanged(function(val) flingMode = val end)
 
 local CounterToggle = Tabs.Esp:AddToggle("CounterESP", {
     Title = "Detect Death Counter 🔴",
@@ -314,22 +252,15 @@ local HunterToggle = Tabs.Esp:AddToggle("HunterESP", {
     Default = false
 })
 
---// TROLL LOOP (DI BELAKANG TARGET)
+--// TROLL LOOP
 local function startTroll()
     if trollConn then return end
-
     trollConn = RunService.RenderStepped:Connect(function()
         if not trollEnabled then return end
-
         local myHRP = getHRP()
         local targetHRP = getTrollTargetHRP()
-
         if myHRP and targetHRP then
-            local targetCF =
-                targetHRP.CFrame
-                * CFrame.new(0, 0, 3)
-
-            
+            local targetCF = targetHRP.CFrame * CFrame.new(0, 0, 3)
             myHRP.CFrame = myHRP.CFrame:Lerp(targetCF, 0.6)
         end
     end)
@@ -337,7 +268,6 @@ end
 
 local function stopTroll()
     trollEnabled = false
-
     if trollConn then
         trollConn:Disconnect()
         trollConn = nil
@@ -346,14 +276,10 @@ end
 
 TrollToggle:OnChanged(function(v)
     trollEnabled = v
-
-    if v then
-        startTroll()
-    else
-        stopTroll()
-    end
+    if v then startTroll() else stopTroll() end
 end)
 
+--// FLING
 local function SkidFling(TargetPlayer)
     local Character = player.Character
     local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
@@ -365,7 +291,6 @@ local function SkidFling(TargetPlayer)
     local THumanoid = TCharacter:FindFirstChildOfClass("Humanoid")
     local TRootPart = THumanoid and THumanoid.RootPart
     local THead = TCharacter:FindFirstChild("Head")
-
     local Accessory = TCharacter:FindFirstChildOfClass("Accessory")
     local Handle = Accessory and Accessory:FindFirstChild("Handle")
 
@@ -377,7 +302,6 @@ local function SkidFling(TargetPlayer)
 
     if THumanoid and THumanoid.Sit then return end
 
-    -- CAMERA FIX
     if THead then
         workspace.CurrentCamera.CameraSubject = THead
     elseif Handle then
@@ -389,7 +313,6 @@ local function SkidFling(TargetPlayer)
     local function FPos(BasePart, Pos, Ang)
         RootPart.CFrame = CFrame.new(BasePart.Position) * Pos * Ang
         Character:SetPrimaryPartCFrame(RootPart.CFrame)
-
         RootPart.Velocity = Vector3.new(9e7, 9e7, 9e7)
         RootPart.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
     end
@@ -398,15 +321,12 @@ local function SkidFling(TargetPlayer)
         local TimeToWait = 2
         local Time = tick()
         local Angle = 0
-
         repeat
             if RootPart and THumanoid then
                 Angle += 100
-
-                FPos(BasePart, CFrame.new(0, 1.5, 0), CFrame.Angles(math.rad(Angle),0,0))
+                FPos(BasePart, CFrame.new(0, 1.5, 0), CFrame.Angles(math.rad(Angle), 0, 0))
                 task.wait()
-
-                FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(Angle),0,0))
+                FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(Angle), 0, 0))
                 task.wait()
             end
         until tick() > Time + TimeToWait
@@ -416,136 +336,133 @@ local function SkidFling(TargetPlayer)
 
     local BV = Instance.new("BodyVelocity")
     BV.Parent = RootPart
-    BV.MaxForce = Vector3.new(9e9,9e9,9e9)
+    BV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
     BV.Velocity = Vector3.zero
 
     Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
 
-    if TRootPart then
-        SFBasePart(TRootPart)
-    elseif THead then
-        SFBasePart(THead)
-    elseif Handle then
-        SFBasePart(Handle)
+    if TRootPart then SFBasePart(TRootPart)
+    elseif THead then SFBasePart(THead)
+    elseif Handle then SFBasePart(Handle)
     end
 
     BV:Destroy()
     Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
     workspace.CurrentCamera.CameraSubject = Humanoid
 
-    -- RETURN POSITION (ANTI MATI 🔥)
     if getgenv().OldPos then
         repeat
             RootPart.CFrame = getgenv().OldPos
             Character:SetPrimaryPartCFrame(getgenv().OldPos)
-
             for _, v in pairs(Character:GetChildren()) do
                 if v:IsA("BasePart") then
                     v.Velocity = Vector3.zero
                     v.RotVelocity = Vector3.zero
                 end
             end
-
             task.wait()
         until (RootPart.Position - getgenv().OldPos.Position).Magnitude < 10
-
         workspace.FallenPartsDestroyHeight = getgenv().FPDH
+    end
+end
+
+--// ESP (EVENT-DRIVEN, OPTIMIZED)
+local function setupESP(highlights, counterName, addFn, removeFn)
+    local conns = {}
+    local liveFolder = workspace:FindFirstChild("Live")
+    if not liveFolder then return conns end
+
+    local function watchModel(model)
+        if not model:IsA("Model") or model == player.Character then return end
+
+        -- cek langsung saat dipasang
+        if model:FindFirstChild(counterName, true) then
+            addFn(model)
+        end
+
+        -- hanya trigger saat Counter-nya yang muncul
+        table.insert(conns, model.DescendantAdded:Connect(function(desc)
+            if desc.Name == counterName then
+                addFn(model)
+            end
+        end))
+
+        -- hanya trigger saat Counter-nya yang hilang
+        table.insert(conns, model.DescendantRemoving:Connect(function(desc)
+            if desc.Name == counterName then
+                task.defer(function()
+                    -- pastikan model masih ada & counter benar-benar sudah tidak ada
+                    if model and model.Parent and not model:FindFirstChild(counterName, true) then
+                        removeFn(model)
+                    end
+                end)
+            end
+        end))
+    end
+
+    for _, model in ipairs(liveFolder:GetChildren()) do
+        watchModel(model)
+    end
+
+    table.insert(conns, liveFolder.ChildAdded:Connect(function(model)
+        watchModel(model)
+    end))
+
+    table.insert(conns, liveFolder.ChildRemoved:Connect(function(model)
+        removeFn(model)
+    end))
+
+    -- fallback cleanup tiap 1 detik
+    table.insert(conns, task.spawn(function()
+        while true do
+            task.wait(1)
+            for model in pairs(highlights) do
+                if not model or not model.Parent then
+                    removeFn(model)
+                end
+            end
+        end
+    end))
+
+    return conns
+end
+
+local function stopESP(conns, highlights, removeFn)
+    for _, c in ipairs(conns) do
+        if typeof(c) == "RBXScriptConnection" then
+            c:Disconnect()
+        elseif typeof(c) == "thread" then
+            task.cancel(c)
+        end
+    end
+    for model in pairs(highlights) do
+        removeFn(model)
     end
 end
 
 local function startCounterESP()
     if counterConn then return end
-
-    counterConn = task.spawn(function()
-        while counterESPEnabled do
-            local liveFolder = workspace:FindFirstChild("Live")
-
-            if liveFolder then
-                for _, model in ipairs(liveFolder:GetChildren()) do
-                    if model:IsA("Model") and model ~= player.Character then
-                        if hasCounter(model) then
-                            if not counterHighlights[model] then
-                                addHighlight(model)
-                            end
-                        else
-                            if counterHighlights[model] then
-                                removeHighlight(model)
-                            end
-                        end
-                    end
-                end
-            end
-
-            -- cleanup
-            for model in pairs(counterHighlights) do
-                if not model or not model.Parent then
-                    removeHighlight(model)
-                end
-            end
-
-            task.wait(0.1)
-        end
-    end)
-end
-
-local function stopCounterESP()
-    counterESPEnabled = false
-
-    if counterConn then
-        counterConn:Disconnect()
-        counterConn = nil
-    end
-
-    -- hapus semua highlight
-    for model, _ in pairs(counterHighlights) do
-        removeHighlight(model)
-    end
+    counterConn = setupESP(counterHighlights, "Counter", addHighlight, removeHighlight)
 end
 
 local function startHunterESP()
     if hunterConn then return end
+    hunterConn = setupESP(hunterHighlights, "HunterCounter", addHunterHighlight, removeHunterHighlight)
+end
 
-    hunterConn = task.spawn(function()
-        while hunterESPEnabled do
-            local liveFolder = workspace:FindFirstChild("Live")
-
-            if liveFolder then
-                for _, model in ipairs(liveFolder:GetChildren()) do
-                    if model:IsA("Model") and model ~= player.Character then
-                        if hasHunterCounter(model) then
-                            if not hunterHighlights[model] then
-                                addHunterHighlight(model)
-                            end
-                        else
-                            if hunterHighlights[model] then
-                                removeHunterHighlight(model)
-                            end
-                        end
-                    end
-                end
-            end
-
-            for model in pairs(hunterHighlights) do
-                if not model or not model.Parent then
-                    removeHunterHighlight(model)
-                end
-            end
-
-            task.wait(0.1)
-        end
-    end)
+local function stopCounterESP()
+    counterESPEnabled = false
+    if counterConn then
+        stopESP(counterConn, counterHighlights, removeHighlight)
+        counterConn = nil
+    end
 end
 
 local function stopHunterESP()
     hunterESPEnabled = false
-
     if hunterConn then
-        hunterConn:Disconnect()
+        stopESP(hunterConn, hunterHighlights, removeHunterHighlight)
         hunterConn = nil
-    end
-
-    for model, _ in pairs(hunterHighlights) do
-        removeHunterHighlight(model)
     end
 end
 
@@ -555,26 +472,17 @@ Tabs.Fling:AddButton({
     Callback = function()
         if flingMode == "Single" then
             local target = Players:FindFirstChild(flingSingleTarget)
-            if target then
-                SkidFling(target)
-            end
-
+            if target then SkidFling(target) end
         elseif flingMode == "Multi" then
             if FlingActive then return end
             FlingActive = true
-
             task.spawn(function()
                 for name in pairs(flingMultiTargets) do
                     if not FlingActive then break end
-
                     local target = Players:FindFirstChild(name)
-                    if target then
-                        SkidFling(target)
-                    end
-
+                    if target then SkidFling(target) end
                     task.wait(0.1)
                 end
-
                 FlingActive = false
             end)
         end
@@ -582,34 +490,24 @@ Tabs.Fling:AddButton({
 })
 
 Tabs.Misc:AddButton({
-	Title = "Unlock Second Page",
+    Title = "Unlock Second Page",
     Description = "Unlocking second page emote",
     Callback = function()
-		playerGui.Emotes.ImageLabel.Gamepass.Visible = false
-		playerGui.Emotes.ImageLabel.GamepassTwo.Visible = false
-		playerGui.Emotes.ImageLabel.Switch.Visible = true
-		playerGui.Emotes.ImageLabel.Switch.Position = UDim2.new(0.5, 0, 0.481000006, 0)
-	end
+        playerGui.Emotes.ImageLabel.Gamepass.Visible = false
+        playerGui.Emotes.ImageLabel.GamepassTwo.Visible = false
+        playerGui.Emotes.ImageLabel.Switch.Visible = true
+        playerGui.Emotes.ImageLabel.Switch.Position = UDim2.new(0.5, 0, 0.481000006, 0)
+    end
 })
 
 CounterToggle:OnChanged(function(v)
     counterESPEnabled = v
-
-    if v then
-        startCounterESP()
-    else
-        stopCounterESP()
-    end
+    if v then startCounterESP() else stopCounterESP() end
 end)
 
 HunterToggle:OnChanged(function(v)
     hunterESPEnabled = v
-
-    if v then
-        startHunterESP()
-    else
-        stopHunterESP()
-    end
+    if v then startHunterESP() else stopHunterESP() end
 end)
 
 --// NOTIF
