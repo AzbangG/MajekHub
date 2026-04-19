@@ -3,6 +3,8 @@ local VirtualUser = game:GetService("VirtualUser")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local RS = game:GetService("ReplicatedStorage")
 
+local KickRE = RS.Shared.Packages.Network.rev_KickEvent
+
 local player = Players.LocalPlayer
 local playerGui = player.PlayerGui
 
@@ -40,11 +42,11 @@ local kickCF = CFrame.new(
     -0.999897599, 7.27590521e-09, 0.0143117635
 )
 
-local collectCF = CFrame.new(
-    698.773926, 3.00000691, 302.92746,
-    0.00453668926, -1.8800149e-08, 0.999989688,
-    1.56144679e-08, 1, 1.87295033e-08,
-    -0.999989688, 1.55293378e-08, 0.00453668926
+local safeCF = CFrame.new(
+    696.822266, 3.00000715, 321.051483,
+	-0.0317601524, -2.77150192e-09, 0.999495506,
+	4.0495105e-09, 1, 2.90157876e-09,
+	-0.999495506, 4.13962198e-09, -0.0317601524
 )
 
 local WeightShop = CFrame.new(
@@ -118,12 +120,6 @@ local function teleport(cf)
     end
 end
 
-local function pressO()
-    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.ButtonB, false, game)
-    task.wait(0.1)
-    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.ButtonB, false, game)
-end
-
 local function clickButton(button)
     if not button or not button.Visible then return end
 
@@ -177,18 +173,29 @@ local function setupBonusAutoClick()
 end
 
 local function startAutoKick()
-    local movingBar = playerGui:WaitForChild("KickMinigame")
-        :WaitForChild("Bar")
-        :WaitForChild("MovingBar")
+    if kickConnection then return end
 
-    kickConnection = movingBar:GetPropertyChangedSignal("Size"):Connect(function()
+    local KickArea = workspace:WaitForChild("Areas"):WaitForChild("KickReady")
+
+    kickConnection = game:GetService("RunService").Heartbeat:Connect(function()
         if not autoKick then return end
 
-        local size = movingBar.Size
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
 
-        -- langsung klik tanpa delay
-        if size.X.Scale >= 1 and size.Y.Scale >= 1 then
-            clickCenterScreen()
+        local distance = (hrp.Position - KickArea.Position).Magnitude
+
+        if distance <= 20 then
+            if not _G.__kickDebounce then
+                _G.__kickDebounce = true
+
+                KickRE:FireServer()
+
+                task.delay(0.3, function()
+                    _G.__kickDebounce = false
+                end)
+            end
         end
     end)
 end
@@ -209,12 +216,32 @@ local function startAutoFarm()
         while autoFarmBlock do
             teleport(kickCF)
             task.wait(0.2)
-            pressO()
+            KickRE:FireServer()
 
-            repeat task.wait() until #waves:GetChildren() > 0 or not autoFarmBlock
+            local newWave
+            local conn
+            conn = waves.ChildAdded:Connect(function(child)
+                newWave = child
+				print(newWave.Name)
+            end)
+
+            repeat task.wait() until newWave or not autoFarmBlock
+            if conn then conn:Disconnect() end
             if not autoFarmBlock then break end
+            task.wait(0.05)
 
-            teleport(collectCF)
+            local root
+            if newWave:IsA("Model") then
+                root = newWave:FindFirstChild("Root") or newWave.PrimaryPart
+				teleport(safeCF)
+            end
+
+            if root then
+                local pos = root.Position
+                if pos.X >= 800 then
+                    teleport(kickCF)
+                end
+            end
 
             repeat task.wait() until #waves:GetChildren() == 0 or not autoFarmBlock
             if not autoFarmBlock then break end
@@ -297,6 +324,6 @@ Tabs.Main:AddButton({
         local char = player.Character or player.CharacterAdded:Wait()
         local hrp = char:WaitForChild("HumanoidRootPart")
 
-        hrp.CFrame = CFrame.new(695.58844, 3.00000691, 231.934326, 0.0143117635, 7.11090031e-09, 0.999897599, 7.17339077e-09, 1, -7.21430293e-09, -0.999897599, 7.27590521e-09, 0.0143117635)
+        hrp.CFrame = CFrame.new(696.822266, 3.00000715, 321.051483, -0.0317601524, -2.77150192e-09, 0.999495506, 4.0495105e-09, 1, 2.90157876e-09, -0.999495506, 4.13962198e-09, -0.0317601524)
     end
 })
