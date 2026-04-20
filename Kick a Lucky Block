@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local VirtualUser = game:GetService("VirtualUser")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local KickRE = RS.Shared.Packages.Network.rev_KickEvent
 
@@ -34,19 +35,20 @@ local autoKick = false
 local kickConnection = nil
 local autoFarmBlock = false
 local farmConnection = nil
+local positionMonitor
 
 local kickCF = CFrame.new(
-    695.58844, 3.00000691, 231.934326,
-    0.0143117635, 7.11090031e-09, 0.999897599,
-    7.17339077e-09, 1, -7.21430293e-09,
-    -0.999897599, 7.27590521e-09, 0.0143117635
+   699.768311, 3.00000691, 231.199585,
+   5.44999337e-15, -1.24774999e-08, 1,
+   2.27413449e-10, 1, 1.24774999e-08,
+   -1, 2.27413449e-10, 5.45283093e-15
 )
 
 local safeCF = CFrame.new(
-    696.822266, 3.00000715, 321.051483,
-	-0.0317601524, -2.77150192e-09, 0.999495506,
-	4.0495105e-09, 1, 2.90157876e-09,
-	-0.999495506, 4.13962198e-09, -0.0317601524
+    697.135803, 3.00000691, 306.857544,
+	0.0188488755, -1.15177791e-07, 0.999822319,
+	4.27019886e-09, 1, 1.15117757e-07,
+	-0.999822319, 2.09960005e-09, 0.0188488755
 )
 
 local WeightShop = CFrame.new(
@@ -120,6 +122,12 @@ local function teleport(cf)
     end
 end
 
+local function pressO()
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.ButtonB, false, game)
+    task.wait(0.1)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.ButtonB, false, game)
+end
+
 local function clickButton(button)
     if not button or not button.Visible then return end
 
@@ -173,20 +181,16 @@ local function setupBonusAutoClick()
 end
 
 local function startAutoKick()
-    if kickConnection then return end
-
     local KickArea = workspace:WaitForChild("Areas"):WaitForChild("KickReady")
 
-    kickConnection = game:GetService("RunService").Heartbeat:Connect(function()
+    kickConnection = KickArea.Touched:Connect(function(hit)
         if not autoKick then return end
 
         local char = player.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
+        if not char then return end
 
-        local distance = (hrp.Position - KickArea.Position).Magnitude
-
-        if distance <= 20 then
+        if hit and hit:IsDescendantOf(char) then
+            -- debounce biar ga spam
             if not _G.__kickDebounce then
                 _G.__kickDebounce = true
 
@@ -209,42 +213,60 @@ end
 
 local function startAutoFarm()
     if farmConnection then return end
-
+    
     farmConnection = task.spawn(function()
         local waves = workspace:WaitForChild("Waves")
-
+        
         while autoFarmBlock do
             teleport(kickCF)
             task.wait(0.2)
             KickRE:FireServer()
-
+            
             local newWave
             local conn
             conn = waves.ChildAdded:Connect(function(child)
                 newWave = child
-				print(newWave.Name)
             end)
-
             repeat task.wait() until newWave or not autoFarmBlock
             if conn then conn:Disconnect() end
             if not autoFarmBlock then break end
+            
             task.wait(0.05)
-
+            
             local root
             if newWave:IsA("Model") then
-                root = newWave:FindFirstChild("Root") or newWave.PrimaryPart
-				teleport(safeCF)
+                root = newWave:FindFirstChild("Root")
+                    or newWave.PrimaryPart
+            elseif newWave:IsA("BasePart") then
+                root = newWave
             end
-
+            
             if root then
-                local pos = root.Position
-                if pos.X >= 800 then
-                    teleport(kickCF)
+				teleport(safeCF)
+                if positionMonitor then
+                    positionMonitor:Disconnect()
                 end
+                
+                positionMonitor = RunService.Heartbeat:Connect(function()
+                    if root and autoFarmBlock then
+                        local pos = root.Position
+                        if pos.X >= 770 then
+                            teleport(kickCF)
+                        end
+                    else
+                        positionMonitor:Disconnect()
+                        positionMonitor = nil
+                    end
+                end)
             end
-
+            
             repeat task.wait() until #waves:GetChildren() == 0 or not autoFarmBlock
             if not autoFarmBlock then break end
+            
+            if positionMonitor then
+                positionMonitor:Disconnect()
+                positionMonitor = nil
+            end
         end
     end)
 end
@@ -324,6 +346,6 @@ Tabs.Main:AddButton({
         local char = player.Character or player.CharacterAdded:Wait()
         local hrp = char:WaitForChild("HumanoidRootPart")
 
-        hrp.CFrame = CFrame.new(696.822266, 3.00000715, 321.051483, -0.0317601524, -2.77150192e-09, 0.999495506, 4.0495105e-09, 1, 2.90157876e-09, -0.999495506, 4.13962198e-09, -0.0317601524)
+        hrp.CFrame = CFrame.new(699.971252, 3.00000715, 307.285217, 0.0240840334, -2.75321117e-08, 0.999709964, -2.08743902e-08, 1, 2.80429848e-08, -0.999709964, -2.15437232e-08, 0.0240840334)
     end
 })
