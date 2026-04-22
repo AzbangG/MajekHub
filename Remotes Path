@@ -1,0 +1,25 @@
+local function getPath(obj)
+	local path = {}
+	local current = obj
+
+	while current and current ~= game do
+		table.insert(path, 1, current.Name)
+		current = current.Parent
+	end
+
+	return table.concat(path, " > ")
+end
+
+local function scanForRemotes(parent)
+	for _, obj in ipairs(parent:GetDescendants()) do
+		if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+			local remoteType = obj.ClassName
+			local path = getPath(obj)
+			print(string.format("[%s] %s", remoteType, path))
+		end
+	end
+end
+
+print("=== Scanning Remotes ===")
+scanForRemotes(game)
+print("=== Scan Complete ===")
