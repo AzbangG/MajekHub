@@ -1,0 +1,131 @@
+local Players = game:GetService("Players")
+local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local RS = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService") -- FIX
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer.PlayerGui
+
+--// LOAD UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+--// WINDOW
+local Window = Fluent:CreateWindow({
+    Title = "Universal",
+    SubTitle = "Majek Hub",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(500, 400),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
+}
+
+--// STATE
+local Gamepasses_List = {}
+local DevProduct_List = {}
+local Selected_Gamepasses = nil
+local Selected_DevProduct = nil
+
+--// DROPDOWNS
+local GamepassesDropdown = Tabs.Main:AddDropdown("Gamepasses", {
+    Title = "Gamepasses ID",
+    Values = Gamepasses_List,
+    Multi = false,
+    Default = nil
+})
+GamepassesDropdown:OnChanged(function(val) Selected_Gamepasses = val end)
+
+local DevProductDropdown = Tabs.Main:AddDropdown("DevProduct", {
+    Title = "Developer Product ID",
+    Values = DevProduct_List,
+    Multi = false,
+    Default = nil
+})
+DevProductDropdown:OnChanged(function(val) Selected_DevProduct = val end)
+
+--// REFRESH
+local function refreshDropdown()
+    GamepassesDropdown:SetValues(Gamepasses_List)
+    DevProductDropdown:SetValues(DevProduct_List)
+end
+
+--// SAFE GET INFO
+local function getProductInfo(id, infoType)
+    local success, result = pcall(function()
+        return MarketplaceService:GetProductInfo(id, infoType)
+    end)
+    return success and result or nil
+end
+
+--// CHECK DUPLICATE
+local function exists(tbl, id)
+    for _, v in ipairs(tbl) do
+        if v == id then
+            return true
+        end
+    end
+    return false
+end
+
+Tabs.Main:AddButton({
+    Title = "Finish Purchase",
+    Description = "Finish Gamepasses Purchasing",
+    Callback = function()
+        MarketplaceService:SignalPromptGamePassPurchaseFinished(LocalPlayer, Selected_Gamepasses, true)
+    end
+})
+
+Tabs.Main:AddButton({
+    Title = "Finish Purchase",
+    Description = "Finish Developer Product Purchasing",
+    Callback = function()
+        MarketplaceService:SignalPromptProductPurchaseFinished(LocalPlayer.UserId, Selected_DevProduct, true)
+    end
+})
+
+--// GAMEPASS FINISHED
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
+    if player ~= LocalPlayer then return end
+
+    local info = getProductInfo(gamePassId, Enum.InfoType.GamePass)
+    local name = info and info.Name or "Unknown"
+
+    print(string.rep("-", 50))
+    print("✅ [GAMEPASS PROMPT SELESAI]")
+    print(string.format("  Nama    : %s (ID: %d)", name, gamePassId))
+    print(string.format("  Status  : %s", wasPurchased and "✅ DIBELI" or "❌ Ditolak / Ditutup"))
+    print(string.rep("-", 50))
+
+    -- INSERT KE TABLE (ANTI DUPLIKAT)
+    if not exists(Gamepasses_List, gamePassId) then
+        table.insert(Gamepasses_List, gamePassId)
+        refreshDropdown()
+    end
+end)
+
+--// DEV PRODUCT FINISHED
+MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, wasPurchased)
+    if userId ~= LocalPlayer.UserId then return end
+
+    local info = getProductInfo(productId, Enum.InfoType.Product)
+    local name = info and info.Name or "Unknown"
+
+    print(string.rep("-", 50))
+    print("✅ [DEV PRODUCT PROMPT SELESAI]")
+    print(string.format("  Nama    : %s (ID: %d)", name, productId))
+    print(string.format("  Status  : %s", wasPurchased and "✅ DIBELI" or "❌ Ditolak / Ditutup"))
+    print(string.rep("-", 50))
+
+    -- INSERT KE TABLE (ANTI DUPLIKAT)
+    if not exists(DevProduct_List, productId) then
+        table.insert(DevProduct_List, productId)
+        refreshDropdown()
+    end
+end)
+
+print("[Logger] 🚀 GamePass & DevProduct Logger aktif!")
