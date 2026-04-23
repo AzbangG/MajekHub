@@ -72,23 +72,19 @@ local flingSingleTarget = nil
 local flingMultiTargets = {}
 local flingMode = "Single"
 
-local espESPEnabled = false
-local counterHighlights = {}
-local hunterHighlights = {}
-local atomicHighlights = {}
-
-local espRegistry = {
-    -- { counterName, highlights, addFn, removeFn, enabled }
-}
-local espWatcherConns = {}
-local espActive = false
-local espEnabledCount = 0
+local counterESP = false
+local hunterESP = false
+local atomicESP = false
 
 local keybindEnabled = false
 local lockOnEnabled = false
 local lockOnTarget = nil
 local lockOnConn = nil
 local defaultSubject = nil
+
+--// ESP FACTORY
+local sharedCleanupActive = false
+local sharedCleanupThread = nil
 
 --// HELPERS
 local function getTrollTargetHRP()
@@ -278,6 +274,28 @@ local function removeAtomicHighlight(model)
     end
 end
 
+Players.PlayerAdded:Connect(function(plr)
+	workspace.FallenPartsDestroyHeight = 0/0
+    if lockOnEnabled then stopLockOn() end
+	refreshPlayers()
+	plr.CharacterAdded:Connect(function(Char)
+		Char.ChildAdded:Connect(function(child)
+			if counterESP and hasCounter(char) then addHighlight(char) end
+			if hunterESP and hasHunterCounter(char) then addHunterHighlight(char) end
+			if atomicESP and hasAtomicCounter(char) then addAtomicHighlight(char) end
+		end)
+		Char.ChildRemoved:Connect(function(child)
+			if hasCounter(char) then removeHighlight(char) end
+			if hasHunterCounter(char) then removeHunterHighlight(char) end
+			if hasAtomicCounter(char) then removeAtomicHighlight(char) end
+		end)
+	end)
+end)
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.2)
+    refreshPlayers()
+end)
+
 --// DROPDOWNS
 local TrollDropdown = Tabs.Main:AddDropdown("TrollPlayer", {
     Title = "Troll Target",
@@ -310,16 +328,6 @@ end
 TrollDropdown:OnChanged(function(val) trollTargetName = val end)
 FlingSingleDropdown:OnChanged(function(val) flingSingleTarget = val end)
 FlingMultiDropdown:OnChanged(function(val) flingMultiTargets = val end)
-
-Players.PlayerAdded:Connect(function()
-    task.wait(0.2)
-    refreshPlayers()
-end)
-Players.PlayerRemoving:Connect(function()
-    task.wait(0.2)
-    refreshPlayers()
-end)
-task.delay(0.5, refreshPlayers)
 
 --// TROLL TOGGLE
 local TrollToggle = Tabs.Main:AddToggle("Troll", {
@@ -367,8 +375,16 @@ local ModeDropdown = Tabs.Fling:AddDropdown("FlingMode", {
 })
 ModeDropdown:OnChanged(function(val) flingMode = val end)
 
-local ESPToggle = Tabs.Esp:AddToggle("AllESP", {
-    Title = "Detect All Counter 🔴🔵🟠",
+local counterESPToggle = Tabs.Esp:AddToggle("CounterESP", {
+    Title = "Detect Death Counter 🔴",
+    Default = false
+})
+local hunterESPToggle = Tabs.Esp:AddToggle("HunterESP", {
+    Title = "Detect Hunter Counter 🔵",
+    Default = false
+})
+local atomicESPToggle = Tabs.Esp:AddToggle("AtomicESP", {
+    Title = "Detect Samurai Counter 🟠",
     Default = false
 })
 
@@ -486,121 +502,138 @@ local function SkidFling(TargetPlayer)
     end
 end
 
-local function registerESP(counterName, highlights, addFn, removeFn)
-    table.insert(espRegistry, {
-        name = counterName,
-        highlights = highlights,
-        addFn = addFn,
-        removeFn = removeFn,
-    })
-end
-
-local function checkAllESP(model)
-    for _, esp in ipairs(espRegistry) do
-        if model:FindFirstChild(esp.name, true) then
-            esp.addFn(model)
-        else
-            esp.removeFn(model)
-        end
-    end
-end
-
-local function watchModel(model)
-    if not model:IsA("Model") or model == player.Character then return end
-
-    -- cek saat pertama dipasang
-    checkAllESP(model)
-
-    -- 1 listener DescendantAdded untuk semua jenis counter
-    table.insert(espWatcherConns, model.DescendantAdded:Connect(function(desc)
-        for _, esp in ipairs(espRegistry) do
-            if desc.Name == esp.name then
-                esp.addFn(model)
-                break
-            end
-        end
-    end))
-
-    -- 1 listener DescendantRemoving untuk semua jenis counter
-    table.insert(espWatcherConns, model.DescendantRemoving:Connect(function(desc)
-        for _, esp in ipairs(espRegistry) do
-            if desc.Name == esp.name then
-                task.defer(function()
-                    if model and model.Parent and not model:FindFirstChild(esp.name, true) then
-                        esp.removeFn(model)
-                    end
-                end)
-                break
-            end
-        end
-    end))
-end
-
-local function startESPWatcher()
-    if espActive then return end
-    espActive = true
-
-    local liveFolder = workspace:FindFirstChild("Live")
-    if not liveFolder then return end
-
-    -- scan awal
-    for _, model in ipairs(liveFolder:GetChildren()) do
-        watchModel(model)
-    end
-
-    -- 1 ChildAdded untuk semua ESP
-    table.insert(espWatcherConns, liveFolder.ChildAdded:Connect(function(model)
-        watchModel(model)
-    end))
-
-    -- 1 ChildRemoved untuk semua ESP
-    table.insert(espWatcherConns, liveFolder.ChildRemoved:Connect(function(model)
-        for _, esp in ipairs(espRegistry) do
-            esp.removeFn(model)
-        end
-    end))
-
-    -- 1 fallback cleanup untuk semua ESP
-    table.insert(espWatcherConns, task.spawn(function()
-        while espActive do
-            task.wait(1)
-            for _, esp in ipairs(espRegistry) do
-                for model in pairs(esp.highlights) do
-                    if not model or not model.Parent then
-                        esp.removeFn(model)
+local function startSharedCleanup(espList)
+    if sharedCleanupActive then return end
+    sharedCleanupActive = true
+    sharedCleanupThread = task.spawn(function()
+        while sharedCleanupActive do
+            task.wait(2) -- naikkan interval jadi 2 detik
+            for _, esp in ipairs(espList) do
+                if esp.active then
+                    for model in pairs(esp.highlights) do
+                        if not model or not model.Parent then
+                            esp.removeFn(model)
+                        end
                     end
                 end
             end
         end
-    end))
+    end)
 end
 
-local function stopESPWatcher()
-    espActive = false
-    for _, c in ipairs(espWatcherConns) do
-        if typeof(c) == "RBXScriptConnection" then
-            c:Disconnect()
-        elseif typeof(c) == "thread" then
-            task.cancel(c)
-        end
-    end
-    espWatcherConns = {}
-end
-
-local function checkAllESP(model)
-    if not espESPEnabled then return end
-    for _, esp in ipairs(espRegistry) do
-        if model:FindFirstChild(esp.name, true) then
-            esp.addFn(model)
-        else
-            esp.removeFn(model)
-        end
+local function stopSharedCleanup()
+    sharedCleanupActive = false
+    if sharedCleanupThread then
+        task.cancel(sharedCleanupThread)
+        sharedCleanupThread = nil
     end
 end
 
-registerESP("Counter",       counterHighlights, addHighlight,       removeHighlight)
-registerESP("HunterCounter", hunterHighlights,  addHunterHighlight, removeHunterHighlight)
-registerESP("AtomicCounter", atomicHighlights,  addAtomicHighlight, removeAtomicHighlight)
+-- Factory: buat 1 ESP object, panggil untuk Counter/Hunter/Atomic
+local function makeESP(counterName, fillColor)
+    local esp = {
+        counterName = counterName,
+        fillColor   = fillColor,
+        highlights  = {},
+        active      = false,
+        conns       = {},      -- koneksi Live folder
+        modelConns  = {},      -- koneksi per model (biar tidak bocor)
+    }
+
+    function esp:add(model)
+        if not self.active then return end
+        if self.highlights[model] then return end
+        local hl = Instance.new("Highlight")
+        hl.FillColor        = self.fillColor
+        hl.OutlineColor     = Color3.fromRGB(255, 255, 255)
+        hl.FillTransparency = 0.3
+        hl.OutlineTransparency = 0
+        hl.DepthMode        = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Adornee          = model
+        hl.Parent           = model
+        self.highlights[model] = hl
+    end
+
+    function esp:remove(model)
+        if self.highlights[model] then
+            self.highlights[model]:Destroy()
+            self.highlights[model] = nil
+        end
+        -- bersihkan koneksi model ini
+        if self.modelConns[model] then
+            for _, c in ipairs(self.modelConns[model]) do c:Disconnect() end
+            self.modelConns[model] = nil
+        end
+    end
+
+    function esp:watchModel(model)
+        if not model:IsA("Model") or model == player.Character then return end
+        if model:FindFirstChild(self.counterName, true) then self:add(model) end
+
+        -- simpan koneksi per model agar tidak bocor
+        self.modelConns[model] = {
+            model.DescendantAdded:Connect(function(desc)
+                if desc.Name == self.counterName then self:add(model) end
+            end),
+            model.DescendantRemoving:Connect(function(desc)
+                if desc.Name == self.counterName then
+                    task.defer(function()
+                        if model and model.Parent
+                        and not model:FindFirstChild(self.counterName, true) then
+                            self:remove(model)
+                        end
+                    end)
+                end
+            end),
+        }
+    end
+
+    function esp:start()
+        if self.active then return end
+        self.active = true
+
+        local liveFolder = workspace:FindFirstChild("Live")
+        if not liveFolder then return end
+
+        for _, model in ipairs(liveFolder:GetChildren()) do
+            self:watchModel(model)
+        end
+
+        table.insert(self.conns, liveFolder.ChildAdded:Connect(function(model)
+            self:watchModel(model)
+        end))
+
+        table.insert(self.conns, liveFolder.ChildRemoved:Connect(function(model)
+            self:remove(model)
+        end))
+    end
+
+    function esp:stop()
+        self.active = false
+        for _, c in ipairs(self.conns) do c:Disconnect() end
+        self.conns = {}
+        -- bersihkan semua model sekaligus
+        for model in pairs(self.highlights) do self:remove(model) end
+    end
+
+    -- expose removeFn untuk shared cleanup
+    esp.removeFn = function(model) esp:remove(model) end
+
+    return esp
+end
+
+--// BUAT 3 ESP OBJECT
+local CounterESP = makeESP("Counter",       Color3.fromRGB(255, 0,   0))
+local HunterESP  = makeESP("HunterCounter", Color3.fromRGB(0,   170, 255))
+local AtomicESP  = makeESP("AtomicCounter", Color3.fromRGB(255, 140, 0))
+local allESPs = {CounterESP, HunterESP, AtomicESP}
+
+local function anyESPActive()
+    for _, esp in ipairs(allESPs) do
+        if esp.active then return true end
+    end
+    return false
+end
 
 --// FLING BUTTON
 Tabs.Fling:AddButton({
@@ -636,18 +669,30 @@ Tabs.Misc:AddButton({
     end
 })
 
-ESPToggle:OnChanged(function(v)
-    espESPEnabled = v
-    if v then
-        espEnabledCount = 1
-        startESPWatcher()
+counterESPToggle:OnChanged(function(v)
+    counterESP = v
+    if v then CounterESP:start(); startSharedCleanup(allESPs)
     else
-        espEnabledCount = 0
-        stopESPWatcher()
-        -- hapus semua highlight
-        for model in pairs(counterHighlights) do removeHighlight(model) end
-        for model in pairs(hunterHighlights) do removeHunterHighlight(model) end
-        for model in pairs(atomicHighlights) do removeAtomicHighlight(model) end
+        CounterESP:stop()
+        if not anyESPActive() then stopSharedCleanup() end
+    end
+end)
+
+hunterESPToggle:OnChanged(function(v)
+    hunterESP = v
+    if v then HunterESP:start(); startSharedCleanup(allESPs)
+    else
+        HunterESP:stop()
+        if not anyESPActive() then stopSharedCleanup() end
+    end
+end)
+
+atomicESPToggle:OnChanged(function(v)
+    atomicESP = v
+    if v then AtomicESP:start(); startSharedCleanup(allESPs)
+    else
+        AtomicESP:stop()
+        if not anyESPActive() then stopSharedCleanup() end
     end
 end)
 
@@ -668,13 +713,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if target then
             startLockOn(target)
         end
-    end
-end)
-
-player.CharacterAdded:Connect(function(char)
-	workspace.FallenPartsDestroyHeight = 0/0
-    if lockOnEnabled then
-        stopLockOn()
     end
 end)
 
