@@ -107,18 +107,6 @@ local function getPlayerList()
     return list
 end
 
-local function hasCounter(model)
-    return model:FindFirstChild("Counter", true) ~= nil
-end
-
-local function hasHunterCounter(model)
-    return model:FindFirstChild("HunterCounter", true) ~= nil
-end
-
-local function hasAtomicCounter(model)
-    return model:FindFirstChild("AtomicCounter", true) ~= nil
-end
-
 local function getHRP()
     local char = player.Character or player.CharacterAdded:Wait()
     return char:WaitForChild("HumanoidRootPart")
@@ -274,28 +262,6 @@ local function removeAtomicHighlight(model)
     end
 end
 
-Players.PlayerAdded:Connect(function(plr)
-	workspace.FallenPartsDestroyHeight = 0/0
-    if lockOnEnabled then stopLockOn() end
-	refreshPlayers()
-	plr.CharacterAdded:Connect(function(Char)
-		Char.ChildAdded:Connect(function(child)
-			if counterESP and hasCounter(char) then addHighlight(char) end
-			if hunterESP and hasHunterCounter(char) then addHunterHighlight(char) end
-			if atomicESP and hasAtomicCounter(char) then addAtomicHighlight(char) end
-		end)
-		Char.ChildRemoved:Connect(function(child)
-			if hasCounter(char) then removeHighlight(char) end
-			if hasHunterCounter(char) then removeHunterHighlight(char) end
-			if hasAtomicCounter(char) then removeAtomicHighlight(char) end
-		end)
-	end)
-end)
-Players.PlayerRemoving:Connect(function()
-    task.wait(0.2)
-    refreshPlayers()
-end)
-
 --// DROPDOWNS
 local TrollDropdown = Tabs.Main:AddDropdown("TrollPlayer", {
     Title = "Troll Target",
@@ -324,6 +290,16 @@ local function refreshPlayers()
     if FlingSingleDropdown then FlingSingleDropdown:SetValues(list) end
     if FlingMultiDropdown then FlingMultiDropdown:SetValue(list) end
 end
+
+Players.PlayerAdded:Connect(function(plr)
+	workspace.FallenPartsDestroyHeight = 0/0
+    if lockOnEnabled then stopLockOn() end
+	refreshPlayers()
+end)
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.2)
+    refreshPlayers()
+end)
 
 TrollDropdown:OnChanged(function(val) trollTargetName = val end)
 FlingSingleDropdown:OnChanged(function(val) flingSingleTarget = val end)
