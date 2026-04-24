@@ -1,0 +1,263 @@
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local VIM = game:GetService("VirtualInputManager")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local playerGui = player.PlayerGui
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+
+--// LOAD UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))() --require(RS.Modules.Fluent)
+
+--// WINDOW
+local Window = Fluent:CreateWindow({
+    Title = "Brainrot Bounties",
+    SubTitle = "Majek Hub",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(520, 400),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
+}
+
+--// STATE
+local autoHuntTarget = false
+local huntConnection = nil
+local isHunting = false
+
+--// BASE CFrame untuk kembali setelah target mati
+local BASE_CFRAME = CFrame.new(
+    -140.995132, -26.8192616, -1700.02661,
+    -0.0250563994, 9.43296925e-08, -0.999686062,
+    -3.11503499e-08, 1, 9.51400807e-08,
+    0.999686062, 3.35244366e-08, -0.0250563994
+)
+
+--// ================= FUNGSI UTILITY =================
+
+local function getTarget()
+    return player:GetAttribute("Target")
+end
+
+local function findTargetModel(targetName)
+    local brainrotsFolder = workspace:FindFirstChild("WorldCore")
+        and workspace.WorldCore:FindFirstChild("Brainrots")
+    if not brainrotsFolder then
+        warn("[AutoHunt] Folder WorldCore.Brainrots tidak ditemukan!")
+        return nil
+    end
+
+    for _, model in ipairs(brainrotsFolder:GetChildren()) do
+        if model.Name == targetName then
+            return model
+        end
+    end
+
+    warn("[AutoHunt] Target '" .. targetName .. "' tidak ditemukan di Brainrots.")
+    return nil
+end
+
+local function tweenToPosition(targetCFrame, duration)
+    duration = duration or 0.5
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(humanoidRootPart, tweenInfo, { CFrame = targetCFrame })
+    tween:Play()
+    tween.Completed:Wait()
+end
+
+local function equipTool()
+    -- Simulasi tekan tombol 1 untuk equip tool slot pertama
+    VIM:SendKeyEvent(true, Enum.KeyCode.One, false, game)
+    task.wait(0.1)
+    VIM:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+    task.wait(0.3) -- tunggu tool ter-equip
+end
+
+local function clickMouse()
+    -- Simulasi mouse click (hold untuk attack)
+    VIM:SendMouseButtonEvent(
+        player:GetMouse().X,
+        player:GetMouse().Y,
+        0, -- 0 = left button
+        true,
+        game,
+        0
+    )
+    task.wait(0.15)
+    VIM:SendMouseButtonEvent(
+        player:GetMouse().X,
+        player:GetMouse().Y,
+        0,
+        false,
+        game,
+        0
+    )
+end
+
+local function waitForTargetDead(targetModel)
+    local targetHumanoid = targetModel:FindFirstChildOfClass("Humanoid")
+    if not targetHumanoid then
+        warn("[AutoHunt] Humanoid tidak ditemukan di target model!")
+        return
+    end
+
+    -- Tunggu sampai health = 0
+    while targetHumanoid and targetHumanoid.Health > 0 do
+        if not autoHuntTarget then break end -- berhenti jika toggle dimatikan
+        task.wait(0.1)
+    end
+end
+
+local function returnToBase()
+    print("[AutoHunt] Target mati. Kembali ke base...")
+    tweenToPosition(BASE_CFRAME, 1.5)
+end
+
+--// ================= FUNGSI UTAMA HUNT =================
+
+local function startHunt()
+    if isHunting then return end
+    isHunting = true
+
+    while autoHuntTarget do
+        local targetName = getTarget()
+
+        if not targetName or targetName == "" then
+            print("[AutoHunt] Tidak ada target. Menunggu...")
+            task.wait(1)
+            continue
+        end
+
+        print("[AutoHunt] Mencari target: " .. targetName)
+
+        local targetModel = findTargetModel(targetName)
+        if not targetModel then
+            task.wait(1)
+            continue
+        end
+
+		--// Kunci arah kamera ke target via RenderStepped (tanpa Scriptable)
+        local cameraLock = RunService.RenderStepped:Connect(function()
+            local root = targetModel.PrimaryPart or targetModel:FindFirstChild("HumanoidRootPart")
+            if root and root.Parent then
+                -- Ambil posisi kamera saat ini, hanya rotasikan arahnya ke target
+                camera.CFrame = CFrame.lookAt(camera.CFrame.Position, root.Position)
+            end
+        end)
+
+        --// Dapatkan RootPart target
+        local targetRoot = targetModel.PrimaryPart or targetModel:FindFirstChild("HumanoidRootPart")
+        if not targetRoot then
+            warn("[AutoHunt] RootPart tidak ditemukan!")
+            task.wait(1)
+            continue
+        end
+
+        --// Hitung posisi: di bawah rootpart target, karakter tiduran (rotasi X +90 = hadap ke atas)
+        local targetPos = targetRoot.Position
+        local lyingCFrame = CFrame.new(targetPos.X, targetPos.Y - 3, targetPos.Z)
+            * CFrame.Angles(math.rad(90), 0, 0) -- hadap ke atas (tiduran)
+
+        print("[AutoHunt] Tween ke posisi target...")
+        tweenToPosition(lyingCFrame, 0.6)
+
+        if not autoHuntTarget then break end
+
+        --// Equip tool slot 1
+        print("[AutoHunt] Equip tool...")
+        equipTool()
+
+        if not autoHuntTarget then break end
+
+        --// Attack loop
+        print("[AutoHunt] Menyerang target...")
+        local targetHumanoid = targetModel:FindFirstChildOfClass("Humanoid")
+
+        while autoHuntTarget and targetHumanoid and targetHumanoid.Health > 0 do
+            local updatedRoot = targetModel.PrimaryPart or targetModel:FindFirstChild("HumanoidRootPart")
+            if updatedRoot then
+                local updatedCFrame = CFrame.new(updatedRoot.Position.X, updatedRoot.Position.Y - 4, updatedRoot.Position.Z)
+                    * CFrame.Angles(math.rad(90), 0, 0)
+                humanoidRootPart.CFrame = updatedCFrame
+            end
+
+            clickMouse()
+            task.wait(0.1)
+        end
+
+        if not autoHuntTarget then break end
+
+        --// Target mati → tween ke posisi target dulu
+        print("[AutoHunt] Target mati! Menuju posisi target untuk loot...")
+		task.wait(1)
+        local deadRoot = targetModel.PrimaryPart or targetModel:FindFirstChild("HumanoidRootPart")
+        if deadRoot then
+            local lootCFrame = CFrame.new(deadRoot.Position.X, deadRoot.Position.Y, deadRoot.Position.Z)
+            tweenToPosition(lootCFrame, 0.5)
+        end
+
+        if not autoHuntTarget then break end
+
+        --// Hold E selama 1 detik untuk ProximityPrompt
+        print("[AutoHunt] Menekan E untuk ProximityPrompt...")
+        VIM:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        task.wait(2) -- tahan 1 detik
+        VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        task.wait(0.2)
+
+		--// Lepas lock kamera setelah target mati
+        cameraLock:Disconnect()
+
+        --// Kembali ke base
+        print("[AutoHunt] Loot selesai. Kembali ke base...")
+        returnToBase()
+
+        task.wait(1)
+
+        if not autoHuntTarget then break end
+    end
+
+    isHunting = false
+    print("[AutoHunt] Hunt dihentikan.")
+end
+
+local function stopHunt()
+    autoHuntTarget = false
+    isHunting = false
+    print("[AutoHunt] Auto hunt dimatikan.")
+end
+
+--// ================= UI =================
+
+local AutoTarget = Tabs.Main:AddToggle("AutoTarget", {
+    Title = "Auto Target",
+    Description = "Auto hunting wanted targets",
+    Default = false
+})
+
+AutoTarget:OnChanged(function(v)
+    autoHuntTarget = v
+    if v then
+        print("[AutoHunt] Auto hunt diaktifkan.")
+        task.spawn(startHunt)
+    else
+        stopHunt()
+    end
+end)
+
+--// Handle respawn karakter
+player.CharacterAdded:Connect(function(char)
+    character = char
+    humanoidRootPart = char:WaitForChild("HumanoidRootPart")
+    humanoid = char:WaitForChild("Humanoid")
+end)
