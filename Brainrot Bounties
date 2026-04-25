@@ -34,6 +34,7 @@ local Tabs = {
 local autoHuntTarget = false
 local huntConnection = nil
 local isHunting = false
+local NO_COLLIDE_PARTS = {"HumanoidRootPart", "UpperTorso", "LowerTorso"}
 
 --// BASE CFrame untuk kembali setelah target mati
 local BASE_CFRAME = CFrame.new(
@@ -44,6 +45,38 @@ local BASE_CFRAME = CFrame.new(
 )
 
 --// ================= FUNGSI UTILITY =================
+
+--// Fungsi bantu: dapatkan karakter Holder jika ada dan bukan kita
+local function getHolderCharacter(targetModel)
+    local holderName = targetModel:GetAttribute("Holder")
+    if not holderName or holderName == "" then return nil end
+    if holderName == player.Name then return nil end -- holder adalah kita sendiri, skip
+
+    local holderPlayer = Players:FindFirstChild(holderName)
+    if not holderPlayer then
+        warn("[AutoHunt] Holder '" .. holderName .. "' tidak ditemukan di Players.")
+        return nil
+    end
+
+    local holderChar = holderPlayer.Character
+    if not holderChar then
+        warn("[AutoHunt] Karakter Holder tidak ditemukan.")
+        return nil
+    end
+
+    return holderChar
+end
+
+local function setNoCollide(state)
+    -- state: true = no collide, false = collide normal
+    if not character then return end
+    for _, partName in ipairs(NO_COLLIDE_PARTS) do
+        local part = character:FindFirstChild(partName)
+        if part then
+            part.CanCollide = not state
+        end
+    end
+end
 
 local function getTarget()
     return player:GetAttribute("Target")
@@ -119,8 +152,20 @@ local function waitForTargetDead(targetModel)
 end
 
 local function returnToBase()
-    print("[AutoHunt] Target mati. Kembali ke base...")
+    print("[AutoHunt] Kembali ke base...")
+
+    setNoCollide(true)
+
+    -- Naik sedikit ke atas dulu sebelum tween ke base
+    local currentPos = humanoidRootPart.Position
+    local riseUpCFrame = CFrame.new(currentPos.X, currentPos.Y + 20, currentPos.Z)
+    tweenToPosition(riseUpCFrame, 0.6)
+
+    -- Tween ke BASE_CFRAME
     tweenToPosition(BASE_CFRAME, 1.5)
+
+    -- Kembalikan collide setelah sampai base
+    setNoCollide(false)
 end
 
 --// ================= FUNGSI UTAMA HUNT =================
@@ -131,6 +176,7 @@ local function startHunt()
 
     while autoHuntTarget do
         local targetName = getTarget()
+        setNoCollide(false)
 
         if not targetName or targetName == "" then
             print("[AutoHunt] Tidak ada target. Menunggu...")
@@ -146,47 +192,88 @@ local function startHunt()
             continue
         end
 
-		--// Kunci arah kamera ke target via RenderStepped (tanpa Scriptable)
+        --// Kunci arah kamera ke targetModel dulu
         local cameraLock = RunService.RenderStepped:Connect(function()
             local root = targetModel.PrimaryPart or targetModel:FindFirstChild("HumanoidRootPart")
             if root and root.Parent then
-                -- Ambil posisi kamera saat ini, hanya rotasikan arahnya ke target
                 camera.CFrame = CFrame.lookAt(camera.CFrame.Position, root.Position)
             end
         end)
 
-        --// Dapatkan RootPart target
-        local targetRoot = targetModel.PrimaryPart or targetModel:FindFirstChild("HumanoidRootPart")
-        if not targetRoot then
-            warn("[AutoHunt] RootPart tidak ditemukan!")
+        --// Cek apakah ada Holder
+        local holderChar = getHolderCharacter(targetModel)
+        local attackTarget = holderChar or targetModel
+        local attackLabel = holderChar and ("Holder: " .. (targetModel:GetAttribute("Holder"))) or targetName
+
+        --// Fungsi bantu ambil root dari attack target
+        local function getAttackRoot()
+            return attackTarget.PrimaryPart or attackTarget:FindFirstChild("HumanoidRootPart")
+        end
+
+        --// Update camera lock ke attack target
+        cameraLock:Disconnect()
+        cameraLock = RunService.RenderStepped:Connect(function()
+            local root = getAttackRoot()
+            if root and root.Parent then
+                camera.CFrame = CFrame.lookAt(camera.CFrame.Position, root.Position)
+            end
+        end)
+
+        --// Dapatkan RootPart attack target
+        local attackRoot = getAttackRoot()
+        if not attackRoot then
+            warn("[AutoHunt] RootPart attack target tidak ditemukan!")
+            cameraLock:Disconnect()
             task.wait(1)
             continue
         end
 
-        --// Hitung posisi: di bawah rootpart target, karakter tiduran (rotasi X +90 = hadap ke atas)
-        local targetPos = targetRoot.Position
-        local lyingCFrame = CFrame.new(targetPos.X, targetPos.Y - 3, targetPos.Z)
-            * CFrame.Angles(math.rad(90), 0, 0) -- hadap ke atas (tiduran)
+        --// Tween ke posisi tiduran di bawah attack target
+        local lyingCFrame = CFrame.new(attackRoot.Position.X, attackRoot.Position.Y - 4, attackRoot.Position.Z)
+            * CFrame.Angles(math.rad(90), 0, 0)
 
-        print("[AutoHunt] Tween ke posisi target...")
+        print("[AutoHunt] Tween ke posisi " .. attackLabel .. "...")
         tweenToPosition(lyingCFrame, 0.6)
 
-        if not autoHuntTarget then break end
+        if not autoHuntTarget then
+            cameraLock:Disconnect()
+            break
+        end
 
         --// Equip tool slot 1
         print("[AutoHunt] Equip tool...")
         equipTool()
 
-        if not autoHuntTarget then break end
+        if not autoHuntTarget then
+            cameraLock:Disconnect()
+            break
+        end
+
+        --// Dapatkan Humanoid attack target
+        local attackHumanoid = attackTarget:FindFirstChildOfClass("Humanoid")
+        if not attackHumanoid then
+            warn("[AutoHunt] Humanoid attack target tidak ditemukan!")
+            cameraLock:Disconnect()
+            task.wait(1)
+            continue
+        end
 
         --// Attack loop
-        print("[AutoHunt] Menyerang target...")
-        local targetHumanoid = targetModel:FindFirstChildOfClass("Humanoid")
+        print("[AutoHunt] Menyerang " .. attackLabel .. "...")
 
-        while autoHuntTarget and targetHumanoid and targetHumanoid.Health > 0 do
-            local updatedRoot = targetModel.PrimaryPart or targetModel:FindFirstChild("HumanoidRootPart")
-            if updatedRoot then
-                local updatedCFrame = CFrame.new(updatedRoot.Position.X, updatedRoot.Position.Y - 4, updatedRoot.Position.Z)
+        while autoHuntTarget and attackHumanoid and attackHumanoid.Health > 0 do
+            --// Re-cek holder tiap loop, bisa saja holder berubah
+            local currentHolder = getHolderCharacter(targetModel)
+            if currentHolder and currentHolder ~= attackTarget then
+                print("[AutoHunt] Holder berubah! Update target serang...")
+                attackTarget = currentHolder
+                attackHumanoid = attackTarget:FindFirstChildOfClass("Humanoid")
+                if not attackHumanoid then break end
+            end
+
+            local root = getAttackRoot()
+            if root then
+                local updatedCFrame = CFrame.new(root.Position.X, root.Position.Y - 4, root.Position.Z)
                     * CFrame.Angles(math.rad(90), 0, 0)
                 humanoidRootPart.CFrame = updatedCFrame
             end
@@ -195,27 +282,34 @@ local function startHunt()
             task.wait(0.1)
         end
 
-        if not autoHuntTarget then break end
+        if not autoHuntTarget then
+            cameraLock:Disconnect()
+            break
+        end
 
-        --// Target mati → tween ke posisi target dulu
+        --// Target/Holder mati → tween ke posisi targetModel untuk loot
         print("[AutoHunt] Target mati! Menuju posisi target untuk loot...")
-		task.wait(1)
+        task.wait(1)
+
         local deadRoot = targetModel.PrimaryPart or targetModel:FindFirstChild("HumanoidRootPart")
         if deadRoot then
-            local lootCFrame = CFrame.new(deadRoot.Position.X, deadRoot.Position.Y, deadRoot.Position.Z)
+            local lootCFrame = CFrame.new(deadRoot.Position.X, deadRoot.Position.Y + 2, deadRoot.Position.Z)
             tweenToPosition(lootCFrame, 0.5)
         end
 
-        if not autoHuntTarget then break end
+        if not autoHuntTarget then
+            cameraLock:Disconnect()
+            break
+        end
 
-        --// Hold E selama 1 detik untuk ProximityPrompt
+        --// Hold E selama 2 detik untuk ProximityPrompt
         print("[AutoHunt] Menekan E untuk ProximityPrompt...")
         VIM:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-        task.wait(2) -- tahan 1 detik
+        task.wait(2)
         VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
         task.wait(0.2)
 
-		--// Lepas lock kamera setelah target mati
+        --// Lepas lock kamera
         cameraLock:Disconnect()
 
         --// Kembali ke base
