@@ -1,5 +1,5 @@
 --// LOAD UI
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))() --require(RS.Modules.Fluent)
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -47,6 +47,7 @@ local Tabs = {
     Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
     Sell = Window:AddTab({ Title = "Sell", Icon = "dollar-sign"}),
     Misc = Window:AddTab({ Title = "Misc", Icon = "gift"}),
+	Minigame = Window:AddTab({ Title = "Minigame", Icon = "gamepad"}),
 }
 
 --// STATE
@@ -62,6 +63,10 @@ local autoReward = false
 local rewardThread
 local antiAFK = false
 local antiAFKConn
+
+local autoWarMinigame = false
+local selectedWarMinigame = "Coral" -- Coral dan Luke
+local autoCanonMinigame = false
 
 --// ================= UI =================
 
@@ -126,6 +131,22 @@ local AntiAFKToggle = Tabs.Misc:AddToggle("AntiAFK", {
     Default = false
 })
 
+Tabs.Minigame:AddDropdown("Mode", {
+    Title = "War Side",
+    Values = {"Coral","Luke"},
+    Default = "Coral"
+}):OnChanged(function(v) selectedWarMinigame = v end)
+
+local AutoWar = Tabs.Minigame:AddToggle("War", {
+    Title = "Auto War",
+    Default = false
+})
+
+local AutoCanon = Tabs.Minigame:AddToggle("Canon", {
+    Title = "Auto Canon",
+    Default = false
+})
+
 --// ================= FUNCTIONS =================
 
 local function getZones()
@@ -142,7 +163,7 @@ local function getZones()
 end
 
 local function getSelectedZone()
-    if not selectedZone then return workspace.CollectZones.base15 end
+    if not selectedZone then return workspace.CollectZones.base16 end
 
     local f = workspace:FindFirstChild("CollectZones")
     if not f then return end
@@ -352,7 +373,7 @@ local function startFarm()
                         if zone then
                             m:SetPrimaryPartCFrame(zone.CFrame + Vector3.new(0, -5, 0))
                         else
-                            m:SetPrimaryPartCFrame(workspace.CollectZones.base15.CFrame + Vector3.new(0, -5, 0))
+                            m:SetPrimaryPartCFrame(workspace.CollectZones.base16.CFrame + Vector3.new(0, -5, 0))
                         end
 
                         m:SetAttribute("MovementSpeed", 0)
@@ -494,6 +515,191 @@ AutoSell:OnChanged(function(v)
         startSelling()
     else
         stopSelling()
+    end
+end)
+
+--// ================= AUTO WAR MINIGAME =================
+
+local warThread
+local VIM = game:GetService("VirtualInputManager")
+
+local function getWarBar()
+    local hud = player.PlayerGui:FindFirstChild("HUD")
+    return hud and hud:FindFirstChild("WarBar")
+end
+
+local function getWarMovingTarget()
+    local wb = getWarBar()
+    if not wb then return nil end
+    local container = wb:FindFirstChild("TargetContainer")
+    return container and container:FindFirstChild("MovingTarget")
+end
+
+local function getWarSideTarget()
+    local wb = getWarBar()
+    if not wb then return nil end
+    local miniMap = wb:FindFirstChild("MiniMap2")
+    if not miniMap then return nil end
+    return miniMap:FindFirstChild(selectedWarMinigame) -- "Coral" / "Luke"
+end
+
+local function isWarAligned(moving, target)
+    local mCenterX = moving.AbsolutePosition.X + (moving.AbsoluteSize.X / 2)
+    local tLeft    = target.AbsolutePosition.X
+    local tRight   = target.AbsolutePosition.X + target.AbsoluteSize.X
+    return mCenterX >= tLeft and mCenterX <= tRight
+end
+
+local function triggerWarKey()
+    VIM:SendKeyEvent(true,  Enum.KeyCode.ButtonX, false, game)
+    task.wait(0.1)
+    VIM:SendKeyEvent(false, Enum.KeyCode.ButtonX, false, game)
+end
+
+local function startWarMinigame()
+    if warThread then return end
+
+    warThread = task.spawn(function()
+        local triggered = false
+
+        while autoWarMinigame do
+            local wb = getWarBar()
+
+            if wb and wb.Visible then
+                local movingTarget = getWarMovingTarget()
+                local sideTarget   = getWarSideTarget()
+
+                if movingTarget and sideTarget then
+                    if isWarAligned(movingTarget, sideTarget) then
+                        if not triggered then
+                            triggered = true
+                            print("[War] ALIGNED → ButtonX → " .. selectedWarMinigame)
+                            triggerWarKey()
+                            task.wait(0.4)
+                        end
+                    else
+                        triggered = false
+                    end
+                end
+            else
+                triggered = false
+            end
+
+            task.wait(0.016)
+        end
+
+        warThread = nil
+    end)
+end
+
+local function stopWarMinigame()
+    autoWarMinigame = false
+    if warThread then
+        task.cancel(warThread)
+        warThread = nil
+    end
+end
+
+AutoWar:OnChanged(function(v)
+    autoWarMinigame = v
+    if v then
+        startWarMinigame()
+        print("[War] Auto War ON → Side: " .. selectedWarMinigame)
+    else
+        stopWarMinigame()
+        print("[War] Auto War OFF")
+    end
+end)
+
+--// ================= AUTO CANON MINIGAME =================
+
+local canonThread
+
+local function getCanonBar()
+    local hud = player.PlayerGui:FindFirstChild("HUD")
+    return hud and hud:FindFirstChild("CannonBar")
+end
+
+local function getCanonMovingTarget()
+    local cb = getCanonBar()
+    if not cb then return nil end
+    local container = cb:FindFirstChild("TargetContainer")
+    return container and container:FindFirstChild("MovingTarget")
+end
+
+local function getCanonTarget()
+    local cb = getCanonBar()
+    if not cb then return nil end
+    local miniMap = cb:FindFirstChild("MiniMap2")
+    if not miniMap then return nil end
+    return miniMap:FindFirstChild("Target") -- single target, no side
+end
+
+local function isCanonAligned(moving, target)
+    local mCenterX = moving.AbsolutePosition.X + (moving.AbsoluteSize.X / 2)
+    local tLeft    = target.AbsolutePosition.X
+    local tRight   = target.AbsolutePosition.X + target.AbsoluteSize.X
+    return mCenterX >= tLeft and mCenterX <= tRight
+end
+
+local function triggerCanonKey()
+    VIM:SendKeyEvent(true,  Enum.KeyCode.ButtonX, false, game)
+    task.wait(0.1)
+    VIM:SendKeyEvent(false, Enum.KeyCode.ButtonX, false, game)
+end
+
+local function startCanonMinigame()
+    if canonThread then return end
+
+    canonThread = task.spawn(function()
+        local triggered = false
+
+        while autoCanonMinigame do
+            local cb = getCanonBar()
+
+            if cb and cb.Visible then
+                local movingTarget = getCanonMovingTarget()
+                local canonTarget  = getCanonTarget()
+
+                if movingTarget and canonTarget then
+                    if isCanonAligned(movingTarget, canonTarget) then
+                        if not triggered then
+                            triggered = true
+                            print("[Canon] ALIGNED → ButtonX → Fire!")
+                            triggerCanonKey()
+                            task.wait(0.4)
+                        end
+                    else
+                        triggered = false
+                    end
+                end
+            else
+                triggered = false
+            end
+
+            task.wait(0.016)
+        end
+
+        canonThread = nil
+    end)
+end
+
+local function stopCanonMinigame()
+    autoCanonMinigame = false
+    if canonThread then
+        task.cancel(canonThread)
+        canonThread = nil
+    end
+end
+
+AutoCanon:OnChanged(function(v)
+    autoCanonMinigame = v
+    if v then
+        startCanonMinigame()
+        print("[Canon] Auto Canon ON")
+    else
+        stopCanonMinigame()
+        print("[Canon] Auto Canon OFF")
     end
 end)
 
