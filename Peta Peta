@@ -1,0 +1,284 @@
+-- LocalScript
+-- Letakkan script ini di StarterPlayer > StarterPlayerScripts atau StarterGui
+
+-- Konfigurasi
+local HIGHLIGHT_COLOR = Color3.fromRGB(255, 0, 0) -- Warna merah untuk highlight
+local BILLBOARD_ENABLED = true -- Set false jika hanya ingin highlight
+local BILLBOARD_TEXT = "⚠️ ENEMY" -- Teks yang ditampilkan
+
+local function addHighlightAndBillboard(model)
+    wait(0.5)
+    
+    -- Buat Highlight pada Model
+    local newHighlight = Instance.new("Highlight")
+    newHighlight.Name = "EnemyHighlight"
+    newHighlight.FillColor = HIGHLIGHT_COLOR
+    newHighlight.OutlineColor = HIGHLIGHT_COLOR
+    newHighlight.FillTransparency = 0.5
+    newHighlight.OutlineTransparency = 0
+    newHighlight.Parent = model
+    
+    -- Fungsi untuk mencari Part utama dalam Model
+    local function findMainPart(targetModel)
+        if targetModel.PrimaryPart then
+            return targetModel.PrimaryPart
+        end
+        
+        local humanoidRootPart = targetModel:FindFirstChild("HumanoidRootPart")
+        if humanoidRootPart then
+            return humanoidRootPart
+        end
+        
+        local head = targetModel:FindFirstChild("Head")
+        if head then
+            return head
+        end
+        
+        for _, child in ipairs(targetModel:GetDescendants()) do
+            if child:IsA("BasePart") then
+                return child
+            end
+        end
+        
+        return nil
+    end
+    
+    -- Buat BillboardGui pada Part
+    if BILLBOARD_ENABLED then
+        local mainPart = findMainPart(model)
+        if mainPart then
+            local billboard = Instance.new("BillboardGui")
+            billboard.Name = "EnemyBillboard"
+            billboard.Adornee = mainPart
+            billboard.Size = UDim2.new(0, 100, 0, 50)
+            billboard.StudsOffset = Vector3.new(0, 3, 0)
+            billboard.AlwaysOnTop = true
+            billboard.Parent = mainPart
+            
+            local textLabel = Instance.new("TextLabel")
+            textLabel.Size = UDim2.new(1, 0, 1, 0)
+            textLabel.BackgroundTransparency = 0.3
+            textLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            textLabel.BorderSizePixel = 0
+            textLabel.Text = BILLBOARD_TEXT
+            textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            textLabel.TextScaled = true
+            textLabel.Font = Enum.Font.GothamBold
+            textLabel.Parent = billboard
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 8)
+            corner.Parent = textLabel
+        end
+    end
+    
+    local function showSpawnNotification()
+        local player = game.Players.LocalPlayer
+        local screenGui = Instance.new("ScreenGui")
+        screenGui.Parent = player:WaitForChild("PlayerGui")
+    
+        local textLabel = Instance.new("TextLabel")
+        textLabel.Text = model.Name .. " spawned"
+        textLabel.TextColor3 = Color3.new(1, 1, 1)
+        textLabel.BackgroundTransparency = 1
+        textLabel.Size = UDim2.new(0.3, 0, 0.1, 0)
+        textLabel.Position = UDim2.new(0.35, 0, 0.9, 0)
+        textLabel.Font = Enum.Font.SourceSans
+        textLabel.TextScaled = true
+        textLabel.Parent = screenGui
+    
+        wait(5)
+        local tweenService = game:GetService("TweenService")
+        local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local tween = tweenService:Create(textLabel, tweenInfo, {TextTransparency = 1})
+        tween:Play()
+    
+        tween.Completed:Connect(function()
+            screenGui:Destroy()
+        end)
+    end
+    
+    model.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            local player = game.Players.LocalPlayer
+            local screenGui = Instance.new("ScreenGui")
+            screenGui.Parent = player:WaitForChild("PlayerGui")
+        
+            local textLabel = Instance.new("TextLabel")
+            textLabel.Text = model.Name .. " despawned"
+            textLabel.TextColor3 = Color3.new(1, 1, 1)
+            textLabel.BackgroundTransparency = 1
+            textLabel.Size = UDim2.new(0.3, 0, 0.1, 0)
+            textLabel.Position = UDim2.new(0.35, 0, 0.9, 0)
+            textLabel.Font = Enum.Font.SourceSans
+            textLabel.TextScaled = true
+            textLabel.Parent = screenGui
+        
+            wait(5)
+            local tweenService = game:GetService("TweenService")
+            local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            local tween = tweenService:Create(textLabel, tweenInfo, {TextTransparency = 1})
+            tween:Play()
+        
+            tween.Completed:Connect(function()
+                screenGui:Destroy()
+            end)
+        end
+    end)
+
+    showSpawnNotification()
+end
+
+local function checkAndAddHighlight()
+    local clientFolder = game.Workspace:FindFirstChild("Client")
+    if clientFolder then
+        local enemyFolder = clientFolder:FindFirstChild("Enemy")
+        if enemyFolder then
+            -- Cari ClientEnemy Part yang sudah ada
+            local clientEnemyPart = enemyFolder:FindFirstChild("ClientEnemy")
+            if clientEnemyPart and clientEnemyPart:IsA("BasePart") then
+                -- Proses model yang sudah ada di dalam ClientEnemy
+                for _, child in ipairs(clientEnemyPart:GetChildren()) do
+                    if child:IsA("Model") then
+                        addHighlightAndBillboard(child)
+                    end
+                end
+                
+                -- Monitor model baru yang ditambahkan ke ClientEnemy
+                clientEnemyPart.ChildAdded:Connect(function(model)
+                    if model:IsA("Model") then
+                        addHighlightAndBillboard(model)
+                    end
+                end)
+            end
+            
+            -- Monitor jika ClientEnemy Part baru ditambahkan
+            enemyFolder.ChildAdded:Connect(function(part)
+                if part:IsA("BasePart") and part.Name == "ClientEnemy" then
+                    part.ChildAdded:Connect(function(model)
+                        if model:IsA("Model") then
+                            addHighlightAndBillboard(model)
+                        end
+                    end)
+                    
+                    -- Proses model yang sudah ada
+                    for _, existingModel in ipairs(part:GetChildren()) do
+                        if existingModel:IsA("Model") then
+                            addHighlightAndBillboard(existingModel)
+                        end
+                    end
+                end
+            end)
+        end
+        
+        -- Monitor jika folder Enemy baru dibuat
+        clientFolder.ChildAdded:Connect(function(subChild)
+            if subChild:IsA("Folder") and subChild.Name == "Enemy" then
+                subChild.ChildAdded:Connect(function(part)
+                    if part:IsA("BasePart") and part.Name == "ClientEnemy" then
+                        part.ChildAdded:Connect(function(model)
+                            if model:IsA("Model") then
+                                addHighlightAndBillboard(model)
+                            end
+                        end)
+                        
+                        for _, existingModel in ipairs(part:GetChildren()) do
+                            if existingModel:IsA("Model") then
+                                addHighlightAndBillboard(existingModel)
+                            end
+                        end
+                    end
+                end)
+                
+                -- Cek apakah ClientEnemy sudah ada saat Enemy folder dibuat
+                local existingPart = subChild:FindFirstChild("ClientEnemy")
+                if existingPart and existingPart:IsA("BasePart") then
+                    existingPart.ChildAdded:Connect(function(model)
+                        if model:IsA("Model") then
+                            addHighlightAndBillboard(model)
+                        end
+                    end)
+                    
+                    for _, existingModel in ipairs(existingPart:GetChildren()) do
+                        if existingModel:IsA("Model") then
+                            addHighlightAndBillboard(existingModel)
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end
+
+local function displayScriptExecutedNotification()
+    local player = game.Players.LocalPlayer
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Text = "Enemy Detector Script executed!"
+    textLabel.TextColor3 = Color3.new(1, 1, 1)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Size = UDim2.new(0.3, 0, 0.1, 0)
+    textLabel.Position = UDim2.new(0.35, 0, 0.9, 0)
+    textLabel.Font = Enum.Font.SourceSans
+    textLabel.TextScaled = true
+    textLabel.Parent = screenGui
+
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://9064294662"
+    sound.Parent = player:WaitForChild("PlayerGui")
+    sound:Play()
+
+    wait(5)
+    local tweenService = game:GetService("TweenService")
+    local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tween = tweenService:Create(textLabel, tweenInfo, {TextTransparency = 1})
+    tween:Play()
+
+    tween.Completed:Connect(function()
+        screenGui:Destroy()
+    end)
+end
+
+checkAndAddHighlight()
+displayScriptExecutedNotification()
+
+game.Workspace.ChildAdded:Connect(function(child)
+    if child:IsA("Folder") and child.Name == "Client" then
+        child.ChildAdded:Connect(function(subChild)
+            if subChild:IsA("Folder") and subChild.Name == "Enemy" then
+                subChild.ChildAdded:Connect(function(part)
+                    if part:IsA("BasePart") and part.Name == "ClientEnemy" then
+                        part.ChildAdded:Connect(function(model)
+                            if model:IsA("Model") then
+                                addHighlightAndBillboard(model)
+                            end
+                        end)
+                        
+                        for _, existingModel in ipairs(part:GetChildren()) do
+                            if existingModel:IsA("Model") then
+                                addHighlightAndBillboard(existingModel)
+                            end
+                        end
+                    end
+                end)
+                
+                local existingPart = subChild:FindFirstChild("ClientEnemy")
+                if existingPart and existingPart:IsA("BasePart") then
+                    existingPart.ChildAdded:Connect(function(model)
+                        if model:IsA("Model") then
+                            addHighlightAndBillboard(model)
+                        end
+                    end)
+                    
+                    for _, existingModel in ipairs(existingPart:GetChildren()) do
+                        if existingModel:IsA("Model") then
+                            addHighlightAndBillboard(existingModel)
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end)
