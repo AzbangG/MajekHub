@@ -478,25 +478,6 @@ local function SkidFling(TargetPlayer)
     end
 end
 
-local function startSharedCleanup(espList)
-    if sharedCleanupActive then return end
-    sharedCleanupActive = true
-    sharedCleanupThread = task.spawn(function()
-        while sharedCleanupActive do
-            task.wait(2) -- naikkan interval jadi 2 detik
-            for _, esp in ipairs(espList) do
-                if esp.active then
-                    for model in pairs(esp.highlights) do
-                        if not model or not model.Parent then
-                            esp.removeFn(model)
-                        end
-                    end
-                end
-            end
-        end
-    end)
-end
-
 local function stopSharedCleanup()
     sharedCleanupActive = false
     if sharedCleanupThread then
@@ -505,28 +486,51 @@ local function stopSharedCleanup()
     end
 end
 
--- Factory: buat 1 ESP object, panggil untuk Counter/Hunter/Atomic
+local function startSharedCleanup(espList)
+    if sharedCleanupActive then return end
+    sharedCleanupActive = true
+    sharedCleanupThread = task.spawn(function()
+        while sharedCleanupActive do
+            task.wait(2)
+            for _, esp in ipairs(espList) do
+                if esp.active then
+                    -- kumpulkan dulu, baru hapus — hindari modifikasi saat iterasi
+                    local toRemove = {}
+                    for model in pairs(esp.highlights) do
+                        if not model or not model.Parent then
+                            table.insert(toRemove, model)
+                        end
+                    end
+                    for _, model in ipairs(toRemove) do
+                        esp:remove(model)
+                    end
+                end
+            end
+        end
+    end)
+end
+
 local function makeESP(counterName, fillColor)
     local esp = {
         counterName = counterName,
         fillColor   = fillColor,
         highlights  = {},
         active      = false,
-        conns       = {},      -- koneksi Live folder
-        modelConns  = {},      -- koneksi per model (biar tidak bocor)
+        conns       = {},
+        modelConns  = {},
     }
 
     function esp:add(model)
         if not self.active then return end
         if self.highlights[model] then return end
         local hl = Instance.new("Highlight")
-        hl.FillColor        = self.fillColor
-        hl.OutlineColor     = Color3.fromRGB(255, 255, 255)
-        hl.FillTransparency = 0.3
+        hl.FillColor           = self.fillColor
+        hl.OutlineColor        = Color3.fromRGB(255, 255, 255)
+        hl.FillTransparency    = 0.3
         hl.OutlineTransparency = 0
-        hl.DepthMode        = Enum.HighlightDepthMode.AlwaysOnTop
-        hl.Adornee          = model
-        hl.Parent           = model
+        hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Adornee             = model
+        hl.Parent              = model
         self.highlights[model] = hl
     end
 
@@ -535,7 +539,6 @@ local function makeESP(counterName, fillColor)
             self.highlights[model]:Destroy()
             self.highlights[model] = nil
         end
-        -- bersihkan koneksi model ini
         if self.modelConns[model] then
             for _, c in ipairs(self.modelConns[model]) do c:Disconnect() end
             self.modelConns[model] = nil
@@ -544,19 +547,33 @@ local function makeESP(counterName, fillColor)
 
     function esp:watchModel(model)
         if not model:IsA("Model") or model == player.Character then return end
-        if model:FindFirstChild(self.counterName, true) then self:add(model) end
 
-        -- simpan koneksi per model agar tidak bocor
+        -- FIX: bersihkan koneksi lama sebelum pasang yang baru
+        if self.modelConns[model] then
+            for _, c in ipairs(self.modelConns[model]) do c:Disconnect() end
+            self.modelConns[model] = nil
+        end
+
+        if model:FindFirstChild(self.counterName, true) then
+            self:add(model)
+        end
+
         self.modelConns[model] = {
             model.DescendantAdded:Connect(function(desc)
-                if desc.Name == self.counterName then self:add(model) end
+                if desc.Name == self.counterName then
+                    self:add(model)
+                end
             end),
             model.DescendantRemoving:Connect(function(desc)
                 if desc.Name == self.counterName then
                     task.defer(function()
                         if model and model.Parent
                         and not model:FindFirstChild(self.counterName, true) then
-                            self:remove(model)
+                            -- hanya hapus highlight, jangan putus koneksi
+                            if self.highlights[model] then
+                                self.highlights[model]:Destroy()
+                                self.highlights[model] = nil
+                            end
                         end
                     end)
                 end
@@ -588,11 +605,17 @@ local function makeESP(counterName, fillColor)
         self.active = false
         for _, c in ipairs(self.conns) do c:Disconnect() end
         self.conns = {}
-        -- bersihkan semua model sekaligus
-        for model in pairs(self.highlights) do self:remove(model) end
+
+        -- FIX: kumpulkan dulu, baru hapus — hindari modifikasi saat iterasi
+        local toRemove = {}
+        for model in pairs(self.highlights) do
+            table.insert(toRemove, model)
+        end
+        for _, model in ipairs(toRemove) do
+            self:remove(model)
+        end
     end
 
-    -- expose removeFn untuk shared cleanup
     esp.removeFn = function(model) esp:remove(model) end
 
     return esp
