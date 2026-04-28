@@ -284,11 +284,39 @@ local FlingMultiDropdown = Tabs.Fling:AddDropdown("FlingMulti", {
     Default = {}
 })
 
+local lastPlayerList = {}
+local refreshQueued = false
+
+local function isSameList(a, b)
+    if #a ~= #b then return false end
+    for i = 1, #a do
+        if a[i] ~= b[i] then
+            return false
+        end
+    end
+    return true
+end
+
 local function refreshPlayers()
-    local list = getPlayerList()
-    if TrollDropdown then TrollDropdown:SetValues(list) end
-    if FlingSingleDropdown then FlingSingleDropdown:SetValues(list) end
-    if FlingMultiDropdown then FlingMultiDropdown:SetValue(list) end
+    if refreshQueued then return end
+    refreshQueued = true
+
+    task.delay(0.3, function()
+        refreshQueued = false
+
+        local list = getPlayerList()
+
+        -- 🔥 skip kalau sama (hemat UI redraw)
+        if isSameList(list, lastPlayerList) then return end
+        lastPlayerList = list
+
+        -- 🔥 update UI (ringan)
+        task.spawn(function()
+            if TrollDropdown then TrollDropdown:SetValues(list) end
+            if FlingSingleDropdown then FlingSingleDropdown:SetValues(list) end
+            if FlingMultiDropdown then FlingMultiDropdown:SetValue(list) end
+        end)
+    end)
 end
 
 Players.PlayerAdded:Connect(function(plr)
