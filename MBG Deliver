@@ -1,0 +1,280 @@
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+--// LOAD UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+--// WINDOW
+local Window = Fluent:CreateWindow({
+    Title = "MBG Deliver",
+    SubTitle = "Majek Hub",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(520, 400),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
+}
+
+--// STATE
+local autoPrompts = false
+local loopConnection = nil
+local cameraTween = nil
+
+local AllTables = workspace.Tables
+
+--// ================= SEKOLAH MONITOR =================
+
+local Sekolahan = workspace:WaitForChild("Sekolahan")
+local sekolahList = {"Sekolah1","Sekolah2","Sekolah3","Sekolah4","Sekolah5","Sekolah6","Sekolah7"}
+
+local prevData = {}
+
+local function getSekolahData(namaSekolah)
+    local sekolah = Sekolahan:FindFirstChild(namaSekolah)
+    if not sekolah then return nil end
+
+    local billboard = sekolah:FindFirstChild("BillboardGui_Client")
+    if not billboard then return nil end
+
+    local frame = billboard:FindFirstChild("Frame")
+    if not frame then return nil end
+
+    local fillBox = frame:FindFirstChild("FillBox")
+    local statusLabel = frame:FindFirstChild("Status")
+
+    local amount = nil
+    local status = nil
+
+    if fillBox then
+        local amountLabel = fillBox:FindFirstChild("Amount")
+        if amountLabel then
+            amount = amountLabel.Text
+        end
+    end
+
+    if statusLabel then
+        status = statusLabel.Text
+    end
+
+    return {
+        amount = amount or "",
+        status = status or ""
+    }
+end
+
+local function startSekolahMonitor()
+    for _, nama in ipairs(sekolahList) do
+        local data = getSekolahData(nama)
+        if data then
+            prevData[nama] = data
+        end
+    end
+
+    task.spawn(function()
+        while true do
+            task.wait(10)
+            for _, nama in ipairs(sekolahList) do
+                local data = getSekolahData(nama)
+                if data then
+                    Fluent:Notify({
+                        Title = nama .. " - " .. data.status,
+                        Content = data.amount,
+                        Duration = 5
+                    })
+                    prevData[nama] = data
+                end
+            end
+        end
+    end)
+end
+
+startSekolahMonitor()
+
+--// ================= CAMERA FUNCTIONS =================
+
+local function getRootPart()
+    local char = LocalPlayer.Character
+    if char then
+        return char:FindFirstChild("HumanoidRootPart")
+    end
+    return nil
+end
+
+local function getNearestCompreng()
+    local root = getRootPart()
+    if not root then return nil end
+
+    local nearest = nil
+    local nearestDist = math.huge
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "Compreng" and obj:IsA("BasePart") then
+            local dist = (obj.Position - root.Position).Magnitude
+            if dist < nearestDist then
+                nearest = obj
+                nearestDist = dist
+            end
+        end
+    end
+
+    return nearest
+end
+
+local function getMBGCount()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local count = 0
+
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") and item.Name == "MBG" then
+                count += 1
+            end
+        end
+    end
+
+    return count
+end
+
+local function getNearestStock()
+    local root = getRootPart()
+    if not root then return nil end
+
+    local nearest = nil
+    local nearestDist = math.huge
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "Stock" and obj:IsA("BasePart") then
+            local dist = (obj.Position - root.Position).Magnitude
+            if dist < nearestDist then
+                nearest = obj
+                nearestDist = dist
+            end
+        end
+    end
+
+    return nearest
+end
+
+local function tweenLookAt(part)
+    if not part then return end
+
+    if cameraTween then
+        cameraTween:Cancel()
+        cameraTween = nil
+    end
+
+    local targetCFrame = CFrame.new(Camera.CFrame.Position, part.Position)
+
+    cameraTween = TweenService:Create(Camera, TweenInfo.new(
+        0.2,
+        Enum.EasingStyle.Quad,
+        Enum.EasingDirection.Out
+    ), {
+        CFrame = targetCFrame
+    })
+
+    cameraTween:Play()
+end
+
+--// ================= FUNCTIONS =================
+
+local function pressE()
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+    task.wait(0.05)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+end
+
+local function getAllPrompts()
+    local prompts = {}
+    for _, tables in ipairs(AllTables:GetChildren()) do
+        for _, child in ipairs(tables:GetDescendants()) do
+            if child:IsA("ProximityPrompt") then
+                table.insert(prompts, child)
+            end
+        end
+    end
+    return prompts
+end
+
+local function enableAllPrompts()
+    local prompts = getAllPrompts()
+    for _, prompt in ipairs(prompts) do
+        prompt.Enabled = true
+
+        local parent = prompt.Parent
+        if parent and parent:IsA("BasePart") then
+            parent.Transparency = 0
+        end
+    end
+end
+
+--// ================= UI =================
+
+local AutoTrigger = Tabs.Main:AddToggle("AutoTrigger", {
+    Title = "Auto Trigger",
+    Description = "Auto trigger ompreng",
+    Default = false
+})
+
+Tabs.Main:AddButton({
+    Title = "Spawn - MBG Cars",
+    Description = "Spawn a MBG cars",
+    Callback = function()
+        game:GetService("ReplicatedStorage"):WaitForChild("SpawnMobilMBG"):FireServer("MobilMBG")
+    end
+})
+
+AutoTrigger:OnChanged(function(v)
+    autoPrompts = v
+
+    if v then
+        loopConnection = task.spawn(function()
+            while autoPrompts do
+                enableAllPrompts()
+                pressE()
+
+                local mbgCount = getMBGCount()
+
+                if mbgCount > 8 then
+                    -- Ada MBG di backpack → arahkan ke Stock terdekat
+                    local stock = getNearestStock()
+                    tweenLookAt(stock)
+                else
+                    -- Backpack kosong MBG → cari Ompreng terdekat
+                    local ompreng = getNearestCompreng()
+                    tweenLookAt(ompreng)
+                end
+
+                task.wait(0.05)
+            end
+        end)
+    else
+        if loopConnection then
+            task.cancel(loopConnection)
+            loopConnection = nil
+        end
+        if cameraTween then
+            cameraTween:Cancel()
+            cameraTween = nil
+        end
+    end
+end)
+
+--// NOTIF
+Fluent:Notify({
+    Title = "UI Loaded",
+    Content = "Ui aktif",
+    Duration = 4
+})
+
+Window:SelectTab(1)
