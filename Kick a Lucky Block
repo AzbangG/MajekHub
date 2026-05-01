@@ -12,7 +12,7 @@ local player = Players.LocalPlayer
 local playerGui = player.PlayerGui
 
 local args = {
-    [1] = 0.9995807986706495
+    [1] = 1
 }
 
 --// LOAD UI
