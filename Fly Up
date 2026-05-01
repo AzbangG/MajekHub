@@ -1,0 +1,303 @@
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+--// LOAD UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+--// WINDOW
+local Window = Fluent:CreateWindow({
+    Title = "Fly Up",
+    SubTitle = "Majek Hub",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(520, 400),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
+}
+
+--// Var
+local OrbFolder = workspace.Camera.Orbs
+
+--// STATE
+local AutoMagnet = false
+local magnetMode = "Tween"
+local MAGNET_RADIUS = 100       -- studs
+local TWEEN_SPEED = 0.18        -- durasi tween per orb (detik)
+local INSTANT_DELAY = 0.05      -- jeda antar orb mode instant (detik)
+local magnetConnection = nil
+local activeTweens = {}         -- tracking tween aktif agar bisa di-cancel
+
+local AutoSpeed = false
+local speedConnection = nil
+local R2_INTERVAL = 0.05 -- seberapa cepat spam R2 (detik)
+
+--// ===============================================================
+--//  HELPER: Ambil HRP character
+--// ===============================================================
+local function getHRP()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+--// ===============================================================
+--//  HELPER: Kumpulkan semua orb dalam radius
+--// ===============================================================
+local function getOrbsInRadius(hrp, radius)
+    local result = {}
+    for _, orb in ipairs(OrbFolder:GetChildren()) do
+        local part = orb:IsA("BasePart") and orb
+            or (orb:IsA("Model") and (orb.PrimaryPart or orb:FindFirstChildWhichIsA("BasePart")))
+
+        if part then
+            -- ✅ Skip orb yang punya Attribute "IsVIP"
+            if orb:GetAttribute("IsVIP") then continue end
+
+            local dist = (part.Position - hrp.Position).Magnitude
+            if dist <= radius then
+                table.insert(result, { orb = orb, part = part, dist = dist })
+            end
+        end
+    end
+    table.sort(result, function(a, b) return a.dist < b.dist end)
+    return result
+end
+
+--// ===============================================================
+--//  CANCEL semua tween yang sedang berjalan
+--// ===============================================================
+local function cancelActiveTweens()
+    for _, tw in ipairs(activeTweens) do
+        tw:Cancel()
+    end
+    activeTweens = {}
+end
+
+--// ===============================================================
+--//  MODE INSTANT  –  pindahkan orb langsung ke HRP sekaligus
+--// ===============================================================
+local function runInstant(orbList, hrp)
+    for _, data in ipairs(orbList) do
+        local part = data.part
+        -- Pastikan orb masih exist & belum di-collect
+        if part and part.Parent then
+            -- Unanchor sementara agar bisa dipindah
+            local wasAnchored = part.Anchored
+            part.Anchored = false
+            part.CFrame = hrp.CFrame
+            part.Anchored = wasAnchored
+
+            task.wait(INSTANT_DELAY)
+        end
+    end
+end
+
+--// ===============================================================
+--//  MODE TWEEN  –  tween orb satu per satu ke HRP
+--// ===============================================================
+local function runTween(orbList, hrp)
+    cancelActiveTweens()
+
+    for _, data in ipairs(orbList) do
+        local part = data.part
+        if part and part.Parent then
+            local wasAnchored = part.Anchored
+            part.Anchored = false
+
+            local goal = { CFrame = hrp.CFrame }
+            local info = TweenInfo.new(TWEEN_SPEED, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            local tw = TweenService:Create(part, info, goal)
+
+            table.insert(activeTweens, tw)
+            tw:Play()
+
+            -- Pulihkan anchor setelah tween selesai (bila orb belum ke-destroy)
+            tw.Completed:Connect(function()
+                if part and part.Parent then
+                    part.Anchored = wasAnchored
+                end
+            end)
+
+            task.wait(TWEEN_SPEED * 0.5) -- slight stagger antar orb
+        end
+    end
+end
+
+--// ===============================================================
+--//  LOOP UTAMA MAGNET  (dijalankan tiap RunService.Heartbeat)
+--// ===============================================================
+local function startMagnet()
+    if magnetConnection then return end  -- sudah running
+
+    magnetConnection = RunService.Heartbeat:Connect(function()
+        local hrp = getHRP()
+        if not hrp then return end
+
+        local orbList = getOrbsInRadius(hrp, MAGNET_RADIUS)
+        if #orbList == 0 then return end
+
+        if magnetMode == "Instant" then
+            -- Instant: jalankan di thread terpisah agar tidak nge-block Heartbeat
+            task.spawn(runInstant, orbList, hrp)
+        elseif magnetMode == "Tween" then
+            task.spawn(runTween, orbList, hrp)
+        end
+    end)
+end
+
+local function stopMagnet()
+    if magnetConnection then
+        magnetConnection:Disconnect()
+        magnetConnection = nil
+    end
+    cancelActiveTweens()
+end
+
+--// ===============================================================
+--//  AUTO SPEED  –  Spam virtual input ButtonR2
+--// ===============================================================
+local function startAutoSpeed()
+    if speedConnection then return end
+
+    speedConnection = RunService.Heartbeat:Connect(function()
+        -- Tekan R2
+        VirtualInputManager:SendKeyEvent(
+            true,
+            Enum.KeyCode.ButtonR2,
+            false,
+            game
+        )
+        task.wait(R2_INTERVAL)
+        -- Lepas R2
+        VirtualInputManager:SendKeyEvent(
+            false,
+            Enum.KeyCode.ButtonR2,
+            false,
+            game
+        )
+    end)
+end
+
+local function stopAutoSpeed()
+    if speedConnection then
+        speedConnection:Disconnect()
+        speedConnection = nil
+    end
+end
+
+--// ===============================================================
+--//  UI
+--// ===============================================================
+local MagnetToggle = Tabs.Main:AddToggle("MagnetToggle", {
+    Title = "Toggle Magnet",
+    Default = false
+})
+
+MagnetToggle:OnChanged(function(v)
+    AutoMagnet = v
+    if AutoMagnet then
+        startMagnet()
+        Fluent:Notify({
+            Title = "Magnet ON",
+            Content = "Mode: " .. magnetMode .. " | Radius: " .. MAGNET_RADIUS .. " studs",
+            Duration = 3
+        })
+    else
+        stopMagnet()
+        Fluent:Notify({
+            Title = "Magnet OFF",
+            Content = "Magnet dinonaktifkan",
+            Duration = 3
+        })
+    end
+end)
+
+Tabs.Main:AddDropdown("MagnetMode", {
+    Title = "Magnet Mode",
+    Values = {"Instant", "Tween"},
+    Default = "Tween"
+}):OnChanged(function(v)
+    magnetMode = v
+    -- Restart loop agar pakai mode baru
+    if AutoMagnet then
+        stopMagnet()
+        startMagnet()
+    end
+    Fluent:Notify({
+        Title = "Mode Diganti",
+        Content = "Magnet mode: " .. v,
+        Duration = 2
+    })
+end)
+
+-- Slider opsional untuk atur radius langsung dari UI
+Tabs.Main:AddSlider("RadiusSlider", {
+    Title = "Magnet Radius",
+    Min = 10,
+    Max = 300,
+    Default = 100,
+    Rounding = 10,
+}):OnChanged(function(v)
+    MAGNET_RADIUS = tonumber(v)
+end)
+
+--// ===============================================================
+--//  UI – Toggle Auto Speed
+--// ===============================================================
+local SpeedToggle = Tabs.Main:AddToggle("SpeedToggle", {
+    Title = "Auto Speed (R2)",
+    Default = false
+})
+
+SpeedToggle:OnChanged(function(v)
+    AutoSpeed = v
+    if AutoSpeed then
+        startAutoSpeed()
+        Fluent:Notify({
+            Title = "Auto Speed ON",
+            Content = "Spam R2 aktif | Interval: " .. (R2_INTERVAL * 1000) .. "ms",
+            Duration = 3
+        })
+    else
+        stopAutoSpeed()
+        Fluent:Notify({
+            Title = "Auto Speed OFF",
+            Content = "Spam R2 dinonaktifkan",
+            Duration = 3
+        })
+    end
+end)
+
+-- Slider opsional untuk atur kecepatan spam
+Tabs.Main:AddSlider("SpeedInterval", {
+    Title = "Speed Interval",
+    Min = 1,
+    Max = 200,
+    Default = 50,
+    Suffix = " ms"
+}):OnChanged(function(v)
+    R2_INTERVAL = v / 1000  -- convert ms ke detik
+    -- Restart agar pakai interval baru
+    if AutoSpeed then
+        stopAutoSpeed()
+        startAutoSpeed()
+    end
+end)
+
+--// NOTIF
+Fluent:Notify({
+    Title = "UI Loaded",
+    Content = "Ui aktif",
+    Duration = 4
+})
+
+Window:SelectTab(1)
