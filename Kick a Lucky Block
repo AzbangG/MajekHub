@@ -3,14 +3,20 @@ local VirtualUser = game:GetService("VirtualUser")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
-local KickRE = RS.Shared.Packages.Network.rev_KickEvent
+local KickRE = RS:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Network"):WaitForChild("rev_KickEvent")
+local CollectRE = RS:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Network"):WaitForChild("rev_KickCollect")
 
 local player = Players.LocalPlayer
 local playerGui = player.PlayerGui
 
+local args = {
+    [1] = 0.9995807986706495
+}
+
 --// LOAD UI
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))() --require(RS.Modules.Fluent)
 
 --// WINDOW
 local Window = Fluent:CreateWindow({
@@ -36,6 +42,8 @@ local kickConnection = nil
 local autoFarmBlock = false
 local farmConnection = nil
 local positionMonitor
+local tweenSpeed = 1
+local currentTween = nil
 
 local kickCF = CFrame.new(
    699.768311, 3.00000691, 231.199585,
@@ -114,6 +122,28 @@ local function clickCenterScreen()
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
 end
 
+local function tweenToPosition(hrp, targetCF, speed)
+    if not hrp then return end
+    
+    -- Cancel tween sebelumnya
+    if currentTween then
+        currentTween:Cancel()
+        currentTween = nil
+    end
+    
+    local tweenInfo = TweenInfo.new(
+        speed, -- Duration (detik)
+        Enum.EasingStyle.Linear,
+        Enum.EasingDirection.InOut
+    )
+    
+    local tween = TweenService:Create(hrp, tweenInfo, { CFrame = targetCF })
+    currentTween = tween
+    tween:Play()
+    
+    return tween
+end
+
 local function teleport(cf)
     local char = player.Character or player.CharacterAdded:Wait()
     local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -181,34 +211,44 @@ local function setupBonusAutoClick()
 end
 
 local function startAutoKick()
-    local KickArea = workspace:WaitForChild("Areas"):WaitForChild("KickReady")
-
-    kickConnection = KickArea.Touched:Connect(function(hit)
-        if not autoKick then return end
-
-        local char = player.Character
-        if not char then return end
-
-        if hit and hit:IsDescendantOf(char) then
-            -- debounce biar ga spam
-            if not _G.__kickDebounce then
-                _G.__kickDebounce = true
-
-                KickRE:FireServer()
-
-                task.delay(0.3, function()
-                    _G.__kickDebounce = false
-                end)
-            end
+    if kickConnection then return end
+    
+    kickConnection = task.spawn(function()
+        while autoKick do
+            pcall(function()
+                local char = player.Character
+                if char then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    
+                    if hrp then
+                        -- Cek jarak ke KickArea
+                        local kickArea = workspace:WaitForChild("Areas"):WaitForChild("KickReady")
+                        local distance = (hrp.Position - kickArea.Position).Magnitude
+                        
+                        -- Kalau dekat dengan KickArea (threshold 50)
+                        if distance < 50 then
+                            if not _G.__kickDebounce then
+                                _G.__kickDebounce = true
+                                
+                                KickRE:FireServer(unpack(args))
+                                
+                                task.delay(0.3, function()
+                                    _G.__kickDebounce = false
+                                end)
+                            end
+                        end
+                    end
+                end
+            end)
+            
+            task.wait(0.1) -- Delay 0.1 detik agar tidak freeze
         end
     end)
 end
 
 local function stopAutoKick()
-    if kickConnection then
-        kickConnection:Disconnect()
-        kickConnection = nil
-    end
+    autoKick = false
+    kickConnection = nil
 end
 
 local function startAutoFarm()
@@ -218,9 +258,17 @@ local function startAutoFarm()
         local waves = workspace:WaitForChild("Waves")
         
         while autoFarmBlock do
-            teleport(kickCF)
-            task.wait(0.2)
-            KickRE:FireServer()
+            -- Tween ke kickCF
+            local char = player.Character
+            if char then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    tweenToPosition(hrp, kickCF, tweenSpeed)
+                    task.wait(tweenSpeed + 0.1) -- Tunggu tween selesai
+                end
+            end
+            
+            KickRE:FireServer(unpack(args))
             
             local newWave
             local conn
@@ -242,38 +290,44 @@ local function startAutoFarm()
             end
             
             if root then
-				teleport(safeCF)
-                if positionMonitor then
-                    positionMonitor:Disconnect()
+                task.wait(5)
+                -- Tween ke kickCF lagi
+                local char = player.Character
+                if char then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        tweenToPosition(hrp, kickCF, tweenSpeed)
+                        task.wait(tweenSpeed + 0.1)
+                    end
                 end
                 
-                positionMonitor = RunService.Heartbeat:Connect(function()
-                    if root and autoFarmBlock then
-                        local pos = root.Position
-                        if pos.X >= 770 then
-                            teleport(kickCF)
-                        end
-                    else
-                        positionMonitor:Disconnect()
-                        positionMonitor = nil
+                -- Spawn connection terpisah untuk spam CollectRE
+                local collectSpammer = task.spawn(function()
+                    while autoFarmBlock and #waves:GetChildren() > 0 do
+                        pcall(function()
+                            CollectRE:FireServer()
+                        end)
+                        task.wait(0.1)
                     end
                 end)
             end
             
             repeat task.wait() until #waves:GetChildren() == 0 or not autoFarmBlock
             if not autoFarmBlock then break end
-            
-            if positionMonitor then
-                positionMonitor:Disconnect()
-                positionMonitor = nil
-            end
+            task.wait(3)
         end
     end)
 end
-
+ 
 local function stopAutoFarm()
     autoFarmBlock = false
     farmConnection = nil
+    
+    -- Cancel tween kalau lagi berjalan
+    if currentTween then
+        currentTween:Cancel()
+        currentTween = nil
+    end
 end
 
 AutoClick:OnChanged(function(v)
@@ -295,9 +349,21 @@ AutoKick:OnChanged(function(v)
     end
 end)
 
+Tabs.Main:AddSlider("TweenSpeed", {
+    Title = "Tween Speed",
+    Description = "Kecepatan movement (detik) - semakin kecil semakin cepat",
+    Min = 0.1,
+    Max = 5,
+    Default = 1,
+    Rounding = 1,
+    Callback = function(Value)
+        tweenSpeed = tonumber(Value)
+    end
+})
+ 
 AutoFarm:OnChanged(function(v)
     autoFarmBlock = v
-
+ 
     if v then
         startAutoFarm()
     else
