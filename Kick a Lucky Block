@@ -11,9 +11,13 @@ local CollectRE = RS:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChil
 local player = Players.LocalPlayer
 local playerGui = player.PlayerGui
 
-local args = {
-    [1] = 1
-}
+local minValue = 0.9995807986706495
+local maxValue = 1
+
+local function getRandomArgs()
+    local randomValue = math.random() * (maxValue - minValue) + minValue
+    return { [1] = randomValue }
+end
 
 --// LOAD UI
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))() --require(RS.Modules.Fluent)
@@ -50,13 +54,6 @@ local kickCF = CFrame.new(
    5.44999337e-15, -1.24774999e-08, 1,
    2.27413449e-10, 1, 1.24774999e-08,
    -1, 2.27413449e-10, 5.45283093e-15
-)
-
-local safeCF = CFrame.new(
-    697.135803, 3.00000691, 306.857544,
-	0.0188488755, -1.15177791e-07, 0.999822319,
-	4.27019886e-09, 1, 1.15117757e-07,
-	-0.999822319, 2.09960005e-09, 0.0188488755
 )
 
 local WeightShop = CFrame.new(
@@ -230,7 +227,9 @@ local function startAutoKick()
                             if not _G.__kickDebounce then
                                 _G.__kickDebounce = true
                                 
+                                local args = getRandomArgs()
                                 KickRE:FireServer(unpack(args))
+                                print(unpack(args))
                                 
                                 task.delay(0.3, function()
                                     _G.__kickDebounce = false
@@ -268,7 +267,9 @@ local function startAutoFarm()
                 end
             end
             
+            local args = getRandomArgs()
             KickRE:FireServer(unpack(args))
+            print(unpack(args))
             
             local newWave
             local conn
