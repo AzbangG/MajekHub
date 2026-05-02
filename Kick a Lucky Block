@@ -11,14 +11,6 @@ local CollectRE = RS:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChil
 local player = Players.LocalPlayer
 local playerGui = player.PlayerGui
 
-local minValue = 0.9995807986706495
-local maxValue = 1
-
-local function getRandomArgs()
-    local randomValue = math.random() * (maxValue - minValue) + minValue
-    return { [1] = randomValue }
-end
-
 --// LOAD UI
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))() --require(RS.Modules.Fluent)
 
@@ -46,7 +38,7 @@ local kickConnection = nil
 local autoFarmBlock = false
 local farmConnection = nil
 local positionMonitor
-local tweenSpeed = 1
+local tweenSpeed = 50
 local currentTween = nil
 
 local kickCF = CFrame.new(
@@ -79,7 +71,7 @@ local SellStand = CFrame.new(
 
 --// ================= UI =================
 local AutoClick = Tabs.Main:AddToggle("Auto", {
-    Title = "Auto Click",
+    Title = "Auto Bonus",
 	Description = "Auto 2x(Bonus) while training",
     Default = false
 })
@@ -119,28 +111,6 @@ local function clickCenterScreen()
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
 end
 
-local function tweenToPosition(hrp, targetCF, speed)
-    if not hrp then return end
-    
-    -- Cancel tween sebelumnya
-    if currentTween then
-        currentTween:Cancel()
-        currentTween = nil
-    end
-    
-    local tweenInfo = TweenInfo.new(
-        speed, -- Duration (detik)
-        Enum.EasingStyle.Linear,
-        Enum.EasingDirection.InOut
-    )
-    
-    local tween = TweenService:Create(hrp, tweenInfo, { CFrame = targetCF })
-    currentTween = tween
-    tween:Play()
-    
-    return tween
-end
-
 local function teleport(cf)
     local char = player.Character or player.CharacterAdded:Wait()
     local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -149,106 +119,123 @@ local function teleport(cf)
     end
 end
 
-local function pressO()
-    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.ButtonB, false, game)
-    task.wait(0.1)
-    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.ButtonB, false, game)
-end
-
-local function clickButton(button)
-    if not button or not button.Visible then return end
-
-    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.ButtonB, false, game)
-    task.wait(0.1)
-    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.ButtonB, false, game)
-end
-
 local function setupBonusAutoClick()
     clearConnections()
 
     local kickGui = playerGui:WaitForChild("KickUpgrades")
 
-    local function hookBonus(button)
-        if not button:IsA("GuiButton") then return end
+    local function clickBonus(button)
+        task.spawn(function()
+            task.wait(0.2)
+            local imgLabel = button:FindFirstChild("ImageLabel")
+            local targets = {button}
+            if imgLabel then table.insert(targets, imgLabel) end
 
-        local conn = button:GetPropertyChangedSignal("Visible"):Connect(function()
-            if autoClickBonus and button.Visible then
-                task.wait(0.1)
-                pcall(function()
-                    clickButton(button)
-                end)
+            if getconnections then
+                for _, target in pairs(targets) do
+                    pcall(function()
+                        for _, conn in pairs(getconnections(target.InputBegan)) do
+                            conn:Fire({UserInputType = Enum.UserInputType.MouseButton1, UserInputState = Enum.UserInputState.Begin})
+                            conn:Fire({UserInputType = Enum.UserInputType.Touch, UserInputState = Enum.UserInputState.Begin})
+                        end
+                    end)
+                    pcall(function() for _, conn in pairs(getconnections(target.MouseButton1Down)) do conn:Fire() end end)
+                    pcall(function() for _, conn in pairs(getconnections(target.MouseButton1Up)) do conn:Fire() end end)
+                    pcall(function() for _, conn in pairs(getconnections(target.MouseButton1Click)) do conn:Fire() end end)
+                    pcall(function() for _, conn in pairs(getconnections(target.Activated)) do conn:Fire() end end)
+                end
             end
         end)
+    end
 
-        table.insert(bonusConnections, conn)
+    local function hookBonus(button)
+        if button.Name ~= "Bonus" and button.Name ~= "PopBonus" then return end
 
-        -- kalau sudah visible
-        if autoClickBonus and button.Visible then
-            task.wait(0.1)
-            pcall(function()
-                clickButton(button)
-            end)
+        if button.Visible then
+            if not button:GetAttribute("AutoClicked") then
+                button:SetAttribute("AutoClicked", true)
+                clickBonus(button)
+            end
+        else
+            button:SetAttribute("AutoClicked", nil)
         end
     end
 
     for _, v in ipairs(kickGui:GetDescendants()) do
-        if v.Name == "Bonus" then
-            hookBonus(v)
-        end
+        hookBonus(v)
     end
 
     local addedConn = kickGui.DescendantAdded:Connect(function(v)
-        if v.Name == "Bonus" then
-            task.wait()
-            hookBonus(v)
-        end
+        task.wait()
+        hookBonus(v)
     end)
 
     table.insert(bonusConnections, addedConn)
 end
 
 local function startAutoKick()
-    if kickConnection then return end
-    
-    kickConnection = task.spawn(function()
-        while autoKick do
-            pcall(function()
-                local char = player.Character
-                if char then
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    
-                    if hrp then
-                        -- Cek jarak ke KickArea
-                        local kickArea = workspace:WaitForChild("Areas"):WaitForChild("KickReady")
-                        local distance = (hrp.Position - kickArea.Position).Magnitude
-                        
-                        -- Kalau dekat dengan KickArea (threshold 50)
-                        if distance < 50 then
-                            if not _G.__kickDebounce then
-                                _G.__kickDebounce = true
-                                
-                                local args = getRandomArgs()
-                                KickRE:FireServer(unpack(args))
-                                print(unpack(args))
-                                
-                                task.delay(0.3, function()
-                                    _G.__kickDebounce = false
-                                end)
-                            end
-                        end
-                    end
-                end
-            end)
-            
-            task.wait(0.1) -- Delay 0.1 detik agar tidak freeze
+    local movingBar = playerGui:WaitForChild("KickMinigame")
+        :WaitForChild("Bar")
+        :WaitForChild("MovingBar")
+
+    kickConnection = movingBar:GetPropertyChangedSignal("Size"):Connect(function()
+        if not autoKick then return end
+
+        local size = movingBar.Size
+
+        -- langsung klik tanpa delay
+        if size.X.Scale >= 1 and size.Y.Scale >= 1 then
+            clickCenterScreen()
         end
     end)
 end
 
 local function stopAutoKick()
-    autoKick = false
-    kickConnection = nil
+    if kickConnection then
+        kickConnection:Disconnect()
+        kickConnection = nil
+    end
 end
+
+--// GANTI walkTo function
+local function walkToPosition(targetPos)
+    local char = player.Character
+    if not char then return end
+    
+    local humanoid = char:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid:MoveTo(targetPos)
+    end
+end
+
+--// GANTI createWavePlatform - jangan teleport, buat saja
+local function createWavePlatform(root)
+    if not root or not root.Parent then return nil end
+    
+    local safePlatform = Instance.new("Part")
+    safePlatform.Name = "SafePlatform"
+    safePlatform.Size = Vector3.new(120, 100, 130)
+    safePlatform.CanCollide = true
+    safePlatform.Transparency = 1
+    safePlatform.CFrame = root.CFrame + (root.CFrame.LookVector * 50)
+    safePlatform.Parent = workspace
+    
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = root
+    weld.Part1 = safePlatform
+    weld.Parent = safePlatform
+    
+    return safePlatform
+end
+
+local function removePlatform(platform)
+    if platform and platform.Parent then
+        platform:Destroy()
+    end
+end
+
+--// UPDATE startAutoFarm
+local wavePlatform = nil
 
 local function startAutoFarm()
     if farmConnection then return end
@@ -257,20 +244,16 @@ local function startAutoFarm()
         local waves = workspace:WaitForChild("Waves")
         
         while autoFarmBlock do
-            -- Tween ke kickCF
-            local char = player.Character
-            if char then
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    tweenToPosition(hrp, kickCF, tweenSpeed)
-                    task.wait(tweenSpeed + 0.1) -- Tunggu tween selesai
-                end
+            -- Walk ke kickCF menggunakan humanoid
+            walkToPosition(kickCF.Position)
+            task.wait(3) -- Tunggu sampai
+            
+            local kickBtn = playerGui:WaitForChild("HUD"):WaitForChild("KickButton")
+            if kickBtn and getconnections then
+                pcall(function() for _, conn in pairs(getconnections(kickBtn.Activated)) do conn:Fire() end end)
             end
             
-            local args = getRandomArgs()
-            KickRE:FireServer(unpack(args))
-            print(unpack(args))
-            
+            -- Tunggu wave muncul
             local newWave
             local conn
             conn = waves.ChildAdded:Connect(function(child)
@@ -291,40 +274,35 @@ local function startAutoFarm()
             end
             
             if root then
-                task.wait(5)
-                -- Tween ke kickCF lagi
-                local char = player.Character
-                if char then
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    if hrp then
-                        tweenToPosition(hrp, kickCF, tweenSpeed)
-                        task.wait(tweenSpeed + 0.1)
-                    end
-                end
+                -- Buat platform aman di depan wave (gak teleport ke situ)
+                wavePlatform = createWavePlatform(root)
                 
-                -- Spawn connection terpisah untuk spam CollectRE
-                local collectSpammer = task.spawn(function()
-                    while autoFarmBlock and #waves:GetChildren() > 0 do
-                        pcall(function()
-                            CollectRE:FireServer()
-                        end)
-                        task.wait(0.1)
-                    end
-                end)
+                walkToPosition(workspace.Lobby.Safe.Position)
+                task.wait(0.5) -- Tunggu character position
+                
+                -- Tunggu wave habis
+                repeat task.wait() until #waves:GetChildren() == 0 or not autoFarmBlock
+                if not autoFarmBlock then break end
+                
+                -- Hapus platform
+                removePlatform(wavePlatform)
+                wavePlatform = nil
             end
             
-            repeat task.wait() until #waves:GetChildren() == 0 or not autoFarmBlock
-            if not autoFarmBlock then break end
-            task.wait(3)
+            task.wait(1)
         end
     end)
 end
- 
+
 local function stopAutoFarm()
     autoFarmBlock = false
     farmConnection = nil
     
-    -- Cancel tween kalau lagi berjalan
+    if wavePlatform then
+        removePlatform(wavePlatform)
+        wavePlatform = nil
+    end
+    
     if currentTween then
         currentTween:Cancel()
         currentTween = nil
@@ -353,9 +331,9 @@ end)
 Tabs.Main:AddSlider("TweenSpeed", {
     Title = "Tween Speed",
     Description = "Kecepatan movement (detik) - semakin kecil semakin cepat",
-    Min = 0.1,
-    Max = 5,
-    Default = 1,
+    Min = 1,
+    Max = 150,
+    Default = 50,
     Rounding = 1,
     Callback = function(Value)
         tweenSpeed = tonumber(Value)
