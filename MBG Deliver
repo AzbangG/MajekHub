@@ -29,6 +29,8 @@ local Tabs = {
 local autoPrompts = false
 local loopConnection = nil
 local cameraTween = nil
+local selectedMode = nil
+local selectedCar = nil
 
 local AllTables = workspace.Tables
 
@@ -110,6 +112,27 @@ local function getRootPart()
     return nil
 end
 
+local function tweenLookAt(part)
+    if not part then return end
+
+    if cameraTween then
+        cameraTween:Cancel()
+        cameraTween = nil
+    end
+
+    local targetCFrame = CFrame.new(Camera.CFrame.Position, part.Position)
+
+    cameraTween = TweenService:Create(Camera, TweenInfo.new(
+        0.2,
+        Enum.EasingStyle.Quad,
+        Enum.EasingDirection.Out
+    ), {
+        CFrame = targetCFrame
+    })
+
+    cameraTween:Play()
+end
+
 local function getNearestCompreng()
     local root = getRootPart()
     if not root then return nil end
@@ -145,19 +168,72 @@ local function getMBGCount()
     return count
 end
 
-local function getNearestStock()
+local function teleportToCompreng()
+    local root = getRootPart()
+    if not root then return end
+
+    local compreng = getNearestCompreng()
+    if not compreng then return end
+
+    root.CFrame = CFrame.new(compreng.Position + Vector3.new(0, 3, 0))
+    tweenLookAt(compreng)
+end
+
+--// ================= CAR FUNCTIONS =================
+
+local function getMBGCars()
+    local cars = {}
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj.Name:sub(1, 8) == "MobilMBG" then
+            local carName = obj.Name:sub(10)
+            if carName and carName ~= "" then
+                table.insert(cars, carName)
+            end
+        end
+    end
+    return cars
+end
+
+local function getStockFromCar(carModel)
+    if not carModel then return nil end
+
+    local chassis = carModel:FindFirstChild("Chassis")
+    if chassis then
+        local stock = chassis:FindFirstChild("Stock")
+        if stock and stock:IsA("BasePart") then
+            return stock
+        end
+    end
+
+    for _, obj in ipairs(carModel:GetDescendants()) do
+        if obj.Name == "Stock" and obj:IsA("BasePart") then
+            return obj
+        end
+    end
+
+    return nil
+end
+
+local function getSpecificCar(carName)
+    return workspace:FindFirstChild("MobilMBG_" .. carName)
+end
+
+local function getNearestCar()
     local root = getRootPart()
     if not root then return nil end
 
     local nearest = nil
     local nearestDist = math.huge
 
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "Stock" and obj:IsA("BasePart") then
-            local dist = (obj.Position - root.Position).Magnitude
-            if dist < nearestDist then
-                nearest = obj
-                nearestDist = dist
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj.Name:sub(1, 8) == "MobilMBG" and obj:IsA("Model") then
+            local primary = obj.PrimaryPart
+            if primary then
+                local dist = (primary.Position - root.Position).Magnitude
+                if dist < nearestDist then
+                    nearest = obj
+                    nearestDist = dist
+                end
             end
         end
     end
@@ -165,25 +241,20 @@ local function getNearestStock()
     return nearest
 end
 
-local function tweenLookAt(part)
-    if not part then return end
+local function teleportToCarStock(carModel)
+    local root = getRootPart()
+    if not root or not carModel then return end
 
-    if cameraTween then
-        cameraTween:Cancel()
-        cameraTween = nil
+    local stock = getStockFromCar(carModel)
+    if not stock then
+        warn("Stock tidak ditemukan di mobil:", carModel.Name)
+        return
     end
 
-    local targetCFrame = CFrame.new(Camera.CFrame.Position, part.Position)
+    -- Hanya teleport saja, tanpa lookat
+    root.CFrame = CFrame.new(stock.Position + Vector3.new(0, 3, 0))
 
-    cameraTween = TweenService:Create(Camera, TweenInfo.new(
-        0.2,
-        Enum.EasingStyle.Quad,
-        Enum.EasingDirection.Out
-    ), {
-        CFrame = targetCFrame
-    })
-
-    cameraTween:Play()
+    return stock -- return stock agar bisa dipakai lookat di luar
 end
 
 --// ================= FUNCTIONS =================
@@ -222,8 +293,36 @@ end
 
 local AutoTrigger = Tabs.Main:AddToggle("AutoTrigger", {
     Title = "Auto Trigger",
-    Description = "Auto trigger ompreng",
+    Description = "Auto trigger compreng",
     Default = false
+})
+
+local ModeDropdown = Tabs.Main:AddDropdown("ModeMBG", {
+    Title = "Mode MBG",
+    Values = {"Specifik", "Nearest"},
+    Multi = false,
+    Default = nil
+})
+
+local CarsDropdown = Tabs.Main:AddDropdown("MBGCars", {
+    Title = "MBG Cars",
+    Values = getMBGCars(),
+    Multi = false,
+    Default = nil
+})
+
+Tabs.Main:AddButton({
+    Title = "Refresh Cars List",
+    Description = "Refresh daftar mobil MBG",
+    Callback = function()
+        local cars = getMBGCars()
+        CarsDropdown:SetValues(cars)
+        Fluent:Notify({
+            Title = "Refreshed",
+            Content = "Ditemukan " .. #cars .. " mobil",
+            Duration = 3
+        })
+    end
 })
 
 Tabs.Main:AddButton({
@@ -234,25 +333,62 @@ Tabs.Main:AddButton({
     end
 })
 
+ModeDropdown:OnChanged(function(v)
+    selectedMode = v
+end)
+
+CarsDropdown:OnChanged(function(v)
+    selectedCar = v
+end)
+
 AutoTrigger:OnChanged(function(v)
     autoPrompts = v
 
     if v then
         loopConnection = task.spawn(function()
             while autoPrompts do
+
+                -- ===== FASE 1: Teleport & Ambil Compreng =====
+                teleportToCompreng()
                 enableAllPrompts()
                 pressE()
 
                 local mbgCount = getMBGCount()
-
                 if mbgCount > 8 then
-                    -- Ada MBG di backpack → arahkan ke Stock terdekat
-                    local stock = getNearestStock()
-                    tweenLookAt(stock)
+                    -- ===== FASE 2: MBG cukup → teleport ke Stock mobil =====
+                    local targetCar = nil
+
+                    if selectedMode == "Specifik" and selectedCar then
+                        targetCar = getSpecificCar(selectedCar)
+                    else
+                        targetCar = getNearestCar()
+                    end
+
+                    if targetCar then
+                        local stock = teleportToCarStock(targetCar)
+                        task.wait(0.3)
+
+                        if stock then
+                            tweenLookAt(stock)
+                        end
+                        task.wait(0.3)
+
+                        enableAllPrompts()
+                        pressE()
+                        task.wait(0.3)
+
+                        teleportToCompreng()
+                        task.wait(0.2)
+
+                        enableAllPrompts()
+                        pressE()
+                        task.wait(0.3)
+                    end
+
                 else
-                    -- Backpack kosong MBG → cari Ompreng terdekat
-                    local ompreng = getNearestCompreng()
-                    tweenLookAt(ompreng)
+                    -- ===== Belum cukup MBG → arahkan kamera ke Compreng =====
+                    local compreng = getNearestCompreng()
+                    tweenLookAt(compreng)
                 end
 
                 task.wait(0.05)
