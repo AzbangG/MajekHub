@@ -17,6 +17,10 @@ local SellLucky = InventoryRF.SellLuckyBlock
 local PlaytimeRF = KnitIndex.PlaytimeRewardService.RF.ClaimGift
 local PassRF = KnitIndex.SeasonPassService.RF.ClaimPassReward
 
+local CollectAllRF1 = KnitIndex.EventService.RF.CollectAllEggs
+local CollectAllRF2 = KnitIndex.EventService.RF.CollectAllInfinityCoin
+local StartRun = KnitIndex.RunningService.RF.StartRun
+
 --// REMOVE AUTORECONNECT (SAFE)
 pcall(function()
     local pg = player.PlayerGui
@@ -210,14 +214,16 @@ local function startReward()
             print("[Reward] Claim Playtime...")
 
             -- 🎫 CLAIM PASS
-            pcall(function()
-                PassRF:InvokeServer()
-            end)
+            for i = 1, 10 do
+                pcall(function()
+                    PassRF:InvokeServer("Free", i)
+                end)
+            end
             print("[Reward] Claim Pass...")
 
-            -- ⏱ DELAY 60 DETIK (SMART BREAK)
+            -- ⏱ DELAY 120 DETIK (SMART BREAK)
             local t = 0
-            while t < 60 do
+            while t < 120 do
                 if not autoReward then break end
                 task.wait(1)
                 t += 1
@@ -315,10 +321,9 @@ local function startFarm()
         while autoFarm do
             local shopFolder = workspace:FindFirstChild("TeleportParts")
             local shop = shopFolder and shopFolder:FindFirstChild("ShopTeleportPart")
-            local line = workspace:FindFirstChild("Line")
+            local line = workspace.Boundaries.MainBoundary
 
             -- 🔹 1. TELEPORT KE LINE
-            print("0. Teleport Lines")
             if line then
                 tp(line)
             end
@@ -333,7 +338,6 @@ local function startFarm()
                 local hrp = getModelHRP(m)
 
                 -- 🔹 3. JALANKAN FARM
-                print("1. Runs")
                 if farmMode == "Move" then
                     if m and hrp then
                         m:SetAttribute("MovementSpeed", speed)
@@ -381,7 +385,6 @@ local function startFarm()
                 end
 
                 -- 🔹 4. TUNGGU MODEL HILANG
-                print("2. Wait Model Gone")
                 while m and m.Parent and autoFarm do
                     task.wait(0.3)
                 end
@@ -389,7 +392,6 @@ local function startFarm()
                 if not autoFarm then break end
 
                 -- 🔹 5. TUNGGU CUTSCENE MUNCUL
-                print("3. Waiting CUTSCENE_FOLD appear")
                 local cutscene
                 while not cutscene and autoFarm do
                     cutscene = workspace:FindFirstChild("CUTSENE_FOLD")
@@ -397,7 +399,6 @@ local function startFarm()
                 end
 
                 -- 🔹 6. TUNGGU CUTSCENE HILANG
-                print("4. Waiting CUTSCENE_FOLD disappear")
                 while cutscene and cutscene.Parent and autoFarm do
                     task.wait(0.2)
                 end
@@ -407,7 +408,6 @@ local function startFarm()
             if not autoFarm then break end
 
             -- 🔹 7. TELEPORT KE SHOP
-            print("5. Teleport Shop")
             if shop then
                 tp(shop)
             end
@@ -568,13 +568,14 @@ local function startWarMinigame()
             if wb and wb.Visible then
                 local movingTarget = getWarMovingTarget()
                 local sideTarget   = getWarSideTarget()
+                local triggerBtn = player.PlayerGui.HUD.WarBar.ConsoleBTN.BTN.Button
 
                 if movingTarget and sideTarget then
                     if isWarAligned(movingTarget, sideTarget) then
-                        if not triggered then
+                        if not triggered and getconnections then
                             triggered = true
-                            print("[War] ALIGNED → ButtonX → " .. selectedWarMinigame)
-                            triggerWarKey()
+                            pcall(function() for _, conn in pairs(getconnections(triggerBtn.MouseButton1Click)) do conn:Fire() end end)
+                            pcall(function() for _, conn in pairs(getconnections(triggerBtn.Activated)) do conn:Fire() end end)
                             task.wait(0.4)
                         end
                     else
@@ -604,10 +605,8 @@ AutoWar:OnChanged(function(v)
     autoWarMinigame = v
     if v then
         startWarMinigame()
-        print("[War] Auto War ON → Side: " .. selectedWarMinigame)
     else
         stopWarMinigame()
-        print("[War] Auto War OFF")
     end
 end)
 
@@ -660,13 +659,14 @@ local function startCanonMinigame()
             if cb and cb.Visible then
                 local movingTarget = getCanonMovingTarget()
                 local canonTarget  = getCanonTarget()
+                local triggerBtn = player.PlayerGui.HUD.CannonBar.ConsoleBTN.BTN.Button
 
                 if movingTarget and canonTarget then
                     if isCanonAligned(movingTarget, canonTarget) then
-                        if not triggered then
+                        if not triggered and getconnections then
                             triggered = true
-                            print("[Canon] ALIGNED → ButtonX → Fire!")
-                            triggerCanonKey()
+                            pcall(function() for _, conn in pairs(getconnections(triggerBtn.MouseButton1Click)) do conn:Fire() end end)
+                            pcall(function() for _, conn in pairs(getconnections(triggerBtn.Activated)) do conn:Fire() end end)
                             task.wait(0.4)
                         end
                     else
@@ -696,10 +696,8 @@ AutoCanon:OnChanged(function(v)
     autoCanonMinigame = v
     if v then
         startCanonMinigame()
-        print("[Canon] Auto Canon ON")
     else
         stopCanonMinigame()
-        print("[Canon] Auto Canon OFF")
     end
 end)
 
