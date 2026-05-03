@@ -37,9 +37,10 @@ local autoKick = false
 local kickConnection = nil
 local autoFarmBlock = false
 local farmConnection = nil
-local positionMonitor
 local tweenSpeed = 50
 local currentTween = nil
+
+local KickArea = workspace.Areas.KickReady
 
 local kickCF = CFrame.new(
    699.768311, 3.00000691, 231.199585,
@@ -98,14 +99,13 @@ local function clearConnections()
     table.clear(bonusConnections)
 end
 
-local function clickCenterScreen()
+local function clickScreen()
     local camera = workspace.CurrentCamera
     local viewport = camera.ViewportSize
 
-    local x = viewport.X / 2
-    local y = viewport.Y / 2
+    local x = 12.5 
+    local y = 20 
 
-    -- klik tengah layar
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
     task.wait(0.05)
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
@@ -184,8 +184,8 @@ local function startAutoKick()
         local size = movingBar.Size
 
         -- langsung klik tanpa delay
-        if size.X.Scale >= 1 and size.Y.Scale >= 1 then
-            clickCenterScreen()
+        if size.X.Scale >= 1 and size.Y.Scale >= 1 and getconnections then
+            clickScreen()
         end
     end)
 end
@@ -197,35 +197,91 @@ local function stopAutoKick()
     end
 end
 
---// GANTI walkTo function
-local function walkToPosition(targetPos)
+--// FUNGSI WALK DETECT - FIX BERHENTI SEBELUM TUJUAN
+local function walkToPositionDetect(targetPos, timeoutDuration, label)
+    label = label or "Target"
+    timeoutDuration = timeoutDuration or 10
+    
     local char = player.Character
-    if not char then return end
+    if not char then 
+        print("❌ " .. label .. ": Character not found")
+        return false 
+    end
     
     local humanoid = char:FindFirstChild("Humanoid")
-    if humanoid then
-        humanoid:MoveTo(targetPos)
+    if not humanoid then 
+        print("❌ " .. label .. ": Humanoid not found")
+        return false 
     end
+    
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then 
+        print("❌ " .. label .. ": HRP not found")
+        return false 
+    end
+    
+    print("🚶 Walking to " .. label .. "...")
+    
+    local startTime = tick()
+    local stuckTimeout = 0
+    local lastPos = hrp.Position
+    
+    while tick() - startTime < timeoutDuration do
+        local distance = (hrp.Position - targetPos).Magnitude
+        
+        -- Jika sudah dekat, selesai
+        if distance < 5 then
+            print("✅ Arrived at " .. label .. " (distance: " .. math.floor(distance) .. " studs)")
+            return true
+        end
+        
+        -- PENTING: Call MoveTo terus-menerus setiap loop agar tidak berhenti
+        humanoid:MoveTo(targetPos)
+        
+        task.wait(0.1)
+        
+        -- Check jika character stuck (not moving for 2 seconds)
+        local currentPos = hrp.Position
+        if (currentPos - lastPos).Magnitude < 0.5 then
+            stuckTimeout = stuckTimeout + 0.1
+            if stuckTimeout > 2 then
+                print("⚠️ " .. label .. ": Character stuck, retrying...")
+                stuckTimeout = 0
+            end
+        else
+            stuckTimeout = 0
+        end
+        lastPos = currentPos
+    end
+    
+    print("⏱️ Timeout at " .. label .. " (distance: " .. math.floor((hrp.Position - targetPos).Magnitude) .. " studs)")
+    return false
 end
 
---// GANTI createWavePlatform - jangan teleport, buat saja
-local function createWavePlatform(root)
-    if not root or not root.Parent then return nil end
+--// FUNGSI BUAT WAVEBLOCKER
+local function createWaveblocker(root)
+    if not root or not root.Parent then 
+        print("❌ Wave root not found")
+        return nil 
+    end
     
-    local safePlatform = Instance.new("Part")
-    safePlatform.Name = "SafePlatform"
-    safePlatform.Size = Vector3.new(120, 100, 130)
-    safePlatform.CanCollide = true
-    safePlatform.Transparency = 1
-    safePlatform.CFrame = root.CFrame + (root.CFrame.LookVector * 50)
-    safePlatform.Parent = workspace
+    local rootSize = root.Size
+    
+    local waveblocker = Instance.new("Part")
+    waveblocker.Name = "Waveblocker"
+    waveblocker.Size = Vector3.new(rootSize.X, rootSize.Y, rootSize.Z + 20)
+    waveblocker.CanCollide = true
+    waveblocker.Transparency = 0.5
+    waveblocker.CFrame = root.CFrame
+    waveblocker.Parent = workspace
     
     local weld = Instance.new("WeldConstraint")
     weld.Part0 = root
-    weld.Part1 = safePlatform
-    weld.Parent = safePlatform
+    weld.Part1 = waveblocker
+    weld.Parent = waveblocker
     
-    return safePlatform
+    print("📦 Waveblocker created, size: " .. tostring(waveblocker.Size))
+    return waveblocker
 end
 
 local function removePlatform(platform)
@@ -234,7 +290,7 @@ local function removePlatform(platform)
     end
 end
 
---// UPDATE startAutoFarm
+--// AUTO FARM FUNCTION
 local wavePlatform = nil
 
 local function startAutoFarm()
@@ -244,10 +300,14 @@ local function startAutoFarm()
         local waves = workspace:WaitForChild("Waves")
         
         while autoFarmBlock do
-            -- Walk ke kickCF menggunakan humanoid
-            walkToPosition(kickCF.Position)
-            task.wait(3) -- Tunggu sampai
+            -- Walk ke kickCF dan detect sampai
+            if walkToPositionDetect(kickCF.Position, 5, "Kick Area") then
+                print("✅ Ready to kick!")
+            else
+                print("⚠️ Couldn't reach kick area, proceeding anyway")
+            end
             
+            -- Fire kick button
             local kickBtn = playerGui:WaitForChild("HUD"):WaitForChild("KickButton")
             if kickBtn and getconnections then
                 pcall(function() for _, conn in pairs(getconnections(kickBtn.Activated)) do conn:Fire() end end)
@@ -274,19 +334,26 @@ local function startAutoFarm()
             end
             
             if root then
-                -- Buat platform aman di depan wave (gak teleport ke situ)
-                wavePlatform = createWavePlatform(root)
+                -- Buat waveblocker
+                wavePlatform = createWaveblocker(root)
                 
-                walkToPosition(workspace.Lobby.Safe.Position)
-                task.wait(0.5) -- Tunggu character position
+                -- Walk ke KickArea (bukan ke waveblocker)
+                if walkToPositionDetect(KickArea.Position, 18, "Safe Area (KickArea)") then
+                    print("✅ Standing in safe area!")
+                else
+                    print("⚠️ Couldn't reach safe area, waiting anyway")
+                end
                 
                 -- Tunggu wave habis
                 repeat task.wait() until #waves:GetChildren() == 0 or not autoFarmBlock
                 if not autoFarmBlock then break end
                 
-                -- Hapus platform
-                removePlatform(wavePlatform)
-                wavePlatform = nil
+                -- Hapus waveblocker setelah wave habis
+                if wavePlatform then
+                    print("🗑️ Removing waveblocker...")
+                    removePlatform(wavePlatform)
+                    wavePlatform = nil
+                end
             end
             
             task.wait(1)
@@ -298,7 +365,9 @@ local function stopAutoFarm()
     autoFarmBlock = false
     farmConnection = nil
     
+    -- Hapus waveblocker jika masih ada
     if wavePlatform then
+        print("🗑️ Cleaning up waveblocker on stop...")
         removePlatform(wavePlatform)
         wavePlatform = nil
     end
@@ -382,7 +451,6 @@ Tabs.Teleport:AddButton({
         hrp.CFrame = SellStand
     end
 })
-
 
 Tabs.Main:AddButton({
     Title = "Teleport",
