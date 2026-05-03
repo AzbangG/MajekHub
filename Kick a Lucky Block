@@ -269,9 +269,9 @@ local function createWaveblocker(root)
     
     local waveblocker = Instance.new("Part")
     waveblocker.Name = "Waveblocker"
-    waveblocker.Size = Vector3.new(rootSize.X, rootSize.Y, rootSize.Z + 20)
+    waveblocker.Size = Vector3.new(rootSize.X + 30, rootSize.Y + 50, rootSize.Z + 100) -- z=depan/belakang
     waveblocker.CanCollide = true
-    waveblocker.Transparency = 0.5
+    waveblocker.Transparency = 1
     waveblocker.CFrame = root.CFrame
     waveblocker.Parent = workspace
     
@@ -334,7 +334,14 @@ local function startAutoFarm()
             end
             
             if root then
-                -- Buat waveblocker
+                -- Hapus waveblocker lama jika masih ada (CEGAH DUPLIKAT)
+                if wavePlatform then
+                    print("🗑️ Cleaning up old waveblocker before creating new one...")
+                    removePlatform(wavePlatform)
+                    wavePlatform = nil
+                end
+                
+                -- Buat waveblocker baru
                 wavePlatform = createWaveblocker(root)
                 
                 -- Walk ke KickArea (bukan ke waveblocker)
@@ -345,7 +352,7 @@ local function startAutoFarm()
                 end
                 
                 -- Tunggu wave habis
-                repeat task.wait() until #waves:GetChildren() == 0 or not autoFarmBlock
+                repeat task.wait() until #waves:GetChildren() == 0
                 if not autoFarmBlock then break end
                 
                 -- Hapus waveblocker setelah wave habis
@@ -366,11 +373,11 @@ local function stopAutoFarm()
     farmConnection = nil
     
     -- Hapus waveblocker jika masih ada
-    if wavePlatform then
+    --[[if wavePlatform then
         print("🗑️ Cleaning up waveblocker on stop...")
         removePlatform(wavePlatform)
         wavePlatform = nil
-    end
+    end]]
     
     if currentTween then
         currentTween:Cancel()
