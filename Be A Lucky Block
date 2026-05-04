@@ -1,44 +1,28 @@
---// LOAD UI
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))() --require(RS.Modules.Fluent)
-
 local Players = game:GetService("Players")
-local RS = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local PathfindingService = game:GetService("PathfindingService")
+
+local KickRE = RS:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Network"):WaitForChild("rev_KickEvent")
+local CollectRE = RS:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Network"):WaitForChild("rev_KickCollect")
+local UpgradeLvRE = RS:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Network"):WaitForChild("rev_B_Upgrade")
+local CollectCashRE = RS:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Network"):WaitForChild("rev_B_Collect")
 
 local player = Players.LocalPlayer
+local playerGui = player.PlayerGui
 
---// REMOTES (CACHE)
-local KnitIndex = RS.Packages._Index["sleitnick_knit@1.7.0"].knit.Services
+-- // MODULES
+local CashVFX = require(RS.Modules.ServicesLoader.VFXService.CashVFX)
 
-local InventoryRF = KnitIndex.InventoryService.RF
-local SellBrainrot = InventoryRF.SellBrainrot
-local SellLucky = InventoryRF.SellLuckyBlock
-
-local PlaytimeRF = KnitIndex.PlaytimeRewardService.RF.ClaimGift
-local PassRF = KnitIndex.SeasonPassService.RF.ClaimPassReward
-
-local CollectAllRF1 = KnitIndex.EventService.RF.CollectAllEggs
-local CollectAllRF2 = KnitIndex.EventService.RF.CollectAllInfinityCoin
-local StartRun = KnitIndex.RunningService.RF.StartRun
-
---// REMOVE AUTORECONNECT (SAFE)
-pcall(function()
-    local pg = player.PlayerGui
- 
-    local hud = pg:FindFirstChild("HUD")
-    if hud and hud:FindFirstChild("AutoReconnect") then
-        hud.AutoReconnect:Destroy()
-    end
- 
-    local hud2 = pg:FindFirstChild("HUD_TEST")
-    if hud2 and hud2:FindFirstChild("AutoReconnect") then
-        hud2.AutoReconnect:Destroy()
-    end
-end)
+--// LOAD UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 --// WINDOW
 local Window = Fluent:CreateWindow({
-    Title = "Be A Lucky Block",
+    Title = "Kick A Lucky Block",
     SubTitle = "Majek Hub",
     TabWidth = 160,
     Size = UDim2.fromOffset(520, 400),
@@ -49,664 +33,588 @@ local Window = Fluent:CreateWindow({
 
 local Tabs = {
     Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
-    Sell = Window:AddTab({ Title = "Sell", Icon = "dollar-sign"}),
-    Misc = Window:AddTab({ Title = "Misc", Icon = "gift"}),
-	Minigame = Window:AddTab({ Title = "Minigame", Icon = "gamepad"}),
+    Teleport = Window:AddTab({ Title = "Teleport", Icon = "ghost" }),
+    Misc = Window:AddTab({ Title = "Misc", Icon = "dollar-sign" }),
 }
 
 --// STATE
-local autoFarm = false
-local selectedZone = nil
-local autoSell = false
-local speed = 10000
-local sell_cooldown = 30
-local sellMode = "ALL"
-local farmMode = "Move"
-local selectedMutations = {}
-local autoReward = false
-local rewardThread
-local antiAFK = false
-local antiAFKConn
+local autoClickBonus = false
+local bonusConnections = {}
+local autoKick = false
+local kickConnections = {}
+local autoFarmBlock = false
+local farmConnection = nil
+local tweenSpeed = 50
+local currentTween = nil
+local isWalking = false
+local autoCollectCash = false
+local collectCashConnection = nil
 
-local autoWarMinigame = false
-local selectedWarMinigame = "Coral" -- Coral dan Luke
-local autoCanonMinigame = false
+local debugMode = false -- Ganti ke true untuk lihat print log
+
+--// DEBUG PRINT
+local function dprint(...)
+    if debugMode then
+        print(...)
+    end
+end
+
+local KickArea = workspace.Areas.KickReady
+
+local kickCF = CFrame.new(
+    699.768311, 3.00000691, 231.199585,
+    5.44999337e-15, -1.24774999e-08, 1,
+    2.27413449e-10, 1, 1.24774999e-08,
+    -1, 2.27413449e-10, 5.45283093e-15
+)
+
+local WeightShop = CFrame.new(
+    730.311829, 3.10000825, 193.675735,
+    0.222229362, -9.29465216e-08, 0.974994421,
+    9.4676281e-08, 1, 7.37508543e-08,
+    -0.974994421, 7.59192389e-08, 0.222229362
+)
+
+local SpeedUpgrade = CFrame.new(
+    730.760864, 3.00000691, 268.084991,
+    -0.20107615, -4.26971773e-08, 0.979575634,
+    -1.04490127e-07, 1, 2.21388774e-08,
+    -0.979575634, -9.79043762e-08, -0.20107615
+)
+
+local SellStand = CFrame.new(
+    731.449951, 3.1000061, 328.038605,
+    -0.737040341, 2.73796763e-09, 0.675848722,
+    1.44397394e-09, 1, -2.47644261e-09,
+    -0.675848722, -8.49330106e-10, -0.737040341
+)
 
 --// ================= UI =================
+local AutoClick = Tabs.Main:AddToggle("Auto", {
+    Title = "Auto Bonus",
+    Description = "Auto 2x(Bonus) while training",
+    Default = false
+})
+
+local AutoKick = Tabs.Main:AddToggle("AutoKick", {
+    Title = "Auto Kick",
+    Description = "Auto kick when bar is full",
+    Default = false
+})
 
 local AutoFarm = Tabs.Main:AddToggle("AutoFarm", {
     Title = "Auto Farm",
+    Description = "Auto farm block(Auto Kick ON)",
     Default = false
 })
 
-Tabs.Main:AddDropdown("FarmMode", {
-    Title = "Mode",
-    Values = {"Move", "Teleport"},
-    Default = "Move"
-}):OnChanged(function(v) farmMode = v end)
-
-Tabs.Main:AddSlider("Speed", {
-    Title = "Speed",
-    Min = 500,
-    Max = 50000,
-    Default = 10000,
-	Rounding = 2,
-}):OnChanged(function(v) speed = v end)
-
-local ZoneDropdown = Tabs.Main:AddDropdown("Zone", {
-    Title = "Select Zone",
-    Values = {},
-    Default = nil
-})
-ZoneDropdown:OnChanged(function(v) selectedZone = v end)
-
-local AutoSell = Tabs.Sell:AddToggle("Sell", { Title = "Auto Sell", Default = false })
-
-Tabs.Sell:AddDropdown("Mode", {
-    Title = "Sell Mode",
-    Values = {"ALL","Mutation"},
-    Default = "ALL"
-}):OnChanged(function(v) sellMode = v end)
-
-Tabs.Sell:AddDropdown("Mut", {
-    Title = "Mutation",
-    Values = {"NORMAL","CANDY","GOLD","DIAMOND","VOID"},
-    Multi = true,
-    Default = {}
-}):OnChanged(function(v)
-    selectedMutations = v
-end)
-
-Tabs.Sell:AddSlider("CD", {
-    Title = "Cooldown",
-    Min = 30,
-    Max = 350,
-    Default = 30,
-	Rounding = 1,
-}):OnChanged(function(v) sell_cooldown = v end)
-
-local AutoReward = Tabs.Misc:AddToggle("Reward", {
-    Title = "Auto Reward",
+local AutoCollect = Tabs.Misc:AddToggle("AutoCollect", {
+    Title = "Auto Collect Cash",
+    Description = "Auto collect cash every 3 min",
     Default = false
 })
 
-local AntiAFKToggle = Tabs.Misc:AddToggle("AntiAFK", {
-    Title = "Anti AFK",
-    Default = false
-})
-
-Tabs.Minigame:AddDropdown("Mode", {
-    Title = "War Side",
-    Values = {"Coral","Luke"},
-    Default = "Coral"
-}):OnChanged(function(v) selectedWarMinigame = v end)
-
-local AutoWar = Tabs.Minigame:AddToggle("War", {
-    Title = "Auto War",
-    Default = false
-})
-
-local AutoCanon = Tabs.Minigame:AddToggle("Canon", {
-    Title = "Auto Canon",
+local DebugToggle = Tabs.Misc:AddToggle("DebugMode", {
+    Title = "Debug Mode",
+    Description = "Show print logs in console",
     Default = false
 })
 
 --// ================= FUNCTIONS =================
 
-local function getZones()
-    local list = {}
-    local f = workspace:FindFirstChild("CollectZones")
-    if f then
-        for _,v in pairs(f:GetChildren()) do
-            if v:IsA("BasePart") then
-                table.insert(list, v.Name)
-            end
+--// CLEAR BONUS CONNECTIONS
+local function clearConnections()
+    for _, conn in ipairs(bonusConnections) do
+        if conn and conn.Disconnect then
+            conn:Disconnect()
         end
     end
-    return list
+    table.clear(bonusConnections)
 end
 
-local function getSelectedZone()
-    if not selectedZone then return workspace.CollectZones.base16 end
-
-    local f = workspace:FindFirstChild("CollectZones")
-    if not f then return end
-
-    return f:FindFirstChild(selectedZone)
+--// CLICK SCREEN
+local function clickScreen()
+    local x = 12.5
+    local y = 20
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+    task.wait(0.05)
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
 end
 
-local function getTools()
-    return player.Backpack:GetChildren()
-end
-
-local function getHRP()
-    return (player.Character or player.CharacterAdded:Wait()):WaitForChild("HumanoidRootPart")
-end
-
-local function getModel()
-    local f = workspace:FindFirstChild("RunningModels")
-    return f and f:FindFirstChild(tostring(player.UserId))
-end
-
-local function getModelHRP(m)
-    return m:WaitForChild("HumanoidRootPart")
-end
-
-local function tp(p)
-    local hrp = getHRP()
-    if hrp and p then
-        hrp.CFrame = p.CFrame + Vector3.new(0,0,5)
+--// TELEPORT
+local function teleport(cf)
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.CFrame = cf
     end
 end
 
-local function startReward()
-    if rewardThread then return end
-
-    rewardThread = task.spawn(function()
-        while autoReward do
-            
-            -- 🎁 CLAIM PLAYTIME
-            for i = 1, 12 do
-                pcall(function()
-                    PlaytimeRF:InvokeServer(i)
-                end)
-            end
-            print("[Reward] Claim Playtime...")
-
-            -- 🎫 CLAIM PASS
-            for i = 1, 10 do
-                pcall(function()
-                    PassRF:InvokeServer("Free", i)
-                end)
-            end
-            print("[Reward] Claim Pass...")
-
-            -- ⏱ DELAY 120 DETIK (SMART BREAK)
-            local t = 0
-            while t < 120 do
-                if not autoReward then break end
-                task.wait(1)
-                t += 1
-            end
+--// GET MY PLOT
+local function getMyPlots()
+    for _, plot in pairs(workspace.Plots:GetChildren()) do
+        local ownerAttr = plot:GetAttribute("Owner") or plot:GetAttribute("PlotOwner")
+        if ownerAttr == player.Name or ownerAttr == player.UserId then
+            dprint("✅ Plot found! (Attribute)")
+            return plot
         end
-
-        rewardThread = nil
-    end)
+    end
+    dprint("⚠️ No plot found for: " .. player.Name)
+    return nil
 end
 
-local function stopReward()
-    autoReward = false
+--// AUTO CLICK BONUS
+local function setupBonusAutoClick()
+    clearConnections()
 
-    if rewardThread then
-        task.cancel(rewardThread)
-        rewardThread = nil
-    end
-end
+    local kickGui = playerGui:WaitForChild("KickUpgrades")
 
---// ================= AUTO REFRESH ZONE =================
-
-local zoneCons = {}
-
-local function clearZoneCons()
-    for _,c in pairs(zoneCons) do
-        c:Disconnect()
-    end
-    table.clear(zoneCons)
-end
-
-local function setupZoneRefresh()
-    local function hook(folder)
-        clearZoneCons()
-        ZoneDropdown:SetValues(getZones())
-
-        table.insert(zoneCons, folder.ChildAdded:Connect(function(c)
-            if c:IsA("BasePart") then
-                ZoneDropdown:SetValues(getZones())
-            end
-        end))
-
-        table.insert(zoneCons, folder.ChildRemoved:Connect(function(c)
-            if c:IsA("BasePart") then
-                ZoneDropdown:SetValues(getZones())
-            end
-        end))
-    end
-
-    local f = workspace:FindFirstChild("CollectZones")
-    if f then hook(f) end
-
-    table.insert(zoneCons, workspace.ChildAdded:Connect(function(c)
-        if c.Name == "CollectZones" then
+    local function clickBonus(button)
+        task.spawn(function()
             task.wait(0.2)
-            hook(c)
+            local imgLabel = button:FindFirstChild("ImageLabel")
+            local targets = {button}
+            if imgLabel then table.insert(targets, imgLabel) end
+
+            if getconnections then
+                for _, target in pairs(targets) do
+                    pcall(function()
+                        for _, conn in pairs(getconnections(target.InputBegan)) do
+                            conn:Fire({UserInputType = Enum.UserInputType.MouseButton1, UserInputState = Enum.UserInputState.Begin})
+                            conn:Fire({UserInputType = Enum.UserInputType.Touch, UserInputState = Enum.UserInputState.Begin})
+                        end
+                    end)
+                    pcall(function() for _, conn in pairs(getconnections(target.MouseButton1Down)) do conn:Fire() end end)
+                    pcall(function() for _, conn in pairs(getconnections(target.MouseButton1Up)) do conn:Fire() end end)
+                    pcall(function() for _, conn in pairs(getconnections(target.MouseButton1Click)) do conn:Fire() end end)
+                    pcall(function() for _, conn in pairs(getconnections(target.Activated)) do conn:Fire() end end)
+                end
+            end
+        end)
+    end
+
+    local function hookBonus(button)
+        if button.Name ~= "Bonus" and button.Name ~= "PopBonus" then return end
+
+        if button.Visible then
+            if not button:GetAttribute("AutoClicked") then
+                button:SetAttribute("AutoClicked", true)
+                clickBonus(button)
+            end
+        else
+            button:SetAttribute("AutoClicked", nil)
         end
-    end))
+    end
+
+    for _, v in ipairs(kickGui:GetDescendants()) do
+        hookBonus(v)
+    end
+
+    local addedConn = kickGui.DescendantAdded:Connect(function(v)
+        task.wait()
+        hookBonus(v)
+    end)
+
+    table.insert(bonusConnections, addedConn)
 end
 
-setupZoneRefresh()
+--// AUTO COLLECT CASH
+local function startAutoCollectCash()
+    if collectCashConnection then return end
 
---// ================= ANTI AFK =================
+    collectCashConnection = task.spawn(function()
+        while autoCollectCash do
+            local MyPlotModel = getMyPlots()
 
-local function startAntiAFK()
-    if antiAFKConn then return end
-    antiAFKConn = player.Idled:Connect(function()
-        if not antiAFK then return end
-        VirtualUser:CaptureController()
-        VirtualUser:Button2Down(Vector2.zero, workspace.CurrentCamera.CFrame)
-        task.wait(1)
-        VirtualUser:Button2Up(Vector2.zero, workspace.CurrentCamera.CFrame)
+            if MyPlotModel then
+                local buttonsFolder = MyPlotModel:FindFirstChild("Buttons")
+
+                if buttonsFolder then
+                    local slots = buttonsFolder:GetChildren()
+
+                    for _, slot in ipairs(slots) do
+                        if autoCollectCash then
+                            local slotNumber = tonumber(slot.Name:match("%d+"))
+
+                            if slotNumber then
+                                CollectCashRE:FireServer(slotNumber)
+                                CashVFX(player.Character.HumanoidRootPart, slot)
+                                dprint("💰 Collected cash from slot: " .. slotNumber)
+                                task.wait(0.8)
+                            end
+                        end
+                    end
+                else
+                    dprint("⚠️ Buttons folder not found in plot")
+                end
+            else
+                dprint("⚠️ Plot not found, retrying...")
+            end
+
+            for i = 180, 1, -1 do
+                if not autoCollectCash then break end
+                task.wait(1)
+            end
+        end
+
+        collectCashConnection = nil
+        dprint("🛑 Auto Collect Cash stopped")
     end)
 end
 
-local function stopAntiAFK()
-    if antiAFKConn then
-        antiAFKConn:Disconnect()
-        antiAFKConn = nil
+local function stopAutoCollectCash()
+    autoCollectCash = false
+    collectCashConnection = nil
+    dprint("🛑 Auto Collect Cash stopped")
+end
+
+--// AUTO KICK
+local function clearKickConnections()
+    for _, conn in ipairs(kickConnections) do
+        if conn and conn.Disconnect then
+            conn:Disconnect()
+        end
+    end
+    table.clear(kickConnections)
+end
+
+local function startAutoKick()
+    clearKickConnections()
+
+    pcall(function()
+        local kickMinigame = playerGui:WaitForChild("KickMinigame")
+        local bar = kickMinigame:WaitForChild("Bar")
+        local movingBar = bar:WaitForChild("MovingBar")
+
+        local conn = movingBar:GetPropertyChangedSignal("Size"):Connect(function()
+            if not autoKick then return end
+            local size = movingBar.Size
+            if size.X.Scale >= 1 and size.Y.Scale >= 1 then
+                clickScreen()
+                dprint("✅ Kicked! (KickMinigame)")
+            end
+        end)
+
+        table.insert(kickConnections, conn)
+        dprint("📍 KickMinigame listener attached")
+    end)
+
+    pcall(function()
+        local stadiumEvent = playerGui:WaitForChild("StadiumEvent")
+        local bar = stadiumEvent:WaitForChild("Bar")
+        local movingBar = bar:WaitForChild("MovingBar")
+
+        local conn = movingBar:GetPropertyChangedSignal("Size"):Connect(function()
+            if not autoKick then return end
+            local size = movingBar.Size
+            if size.X.Scale >= 1 and size.Y.Scale >= 1 then
+                clickScreen()
+                dprint("✅ Kicked! (StadiumEvent)")
+            end
+        end)
+
+        table.insert(kickConnections, conn)
+        dprint("📍 StadiumEvent listener attached")
+    end)
+end
+
+local function stopAutoKick()
+    clearKickConnections()
+    dprint("🛑 AutoKick stopped")
+end
+
+--// PATHFINDING WALK
+local function walkToPositionDetect(targetPos, timeoutDuration, label)
+    label = label or "Target"
+    timeoutDuration = timeoutDuration or 10
+
+    if isWalking then
+        dprint("⚠️ Already walking, please wait...")
+        return false
+    end
+
+    local char = player.Character
+    if not char then
+        dprint("❌ " .. label .. ": Character not found")
+        return false
+    end
+
+    local humanoid = char:FindFirstChild("Humanoid")
+    if not humanoid then
+        dprint("❌ " .. label .. ": Humanoid not found")
+        return false
+    end
+
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        dprint("❌ " .. label .. ": HRP not found")
+        return false
+    end
+
+    isWalking = true
+    dprint("🚶 Walking to " .. label .. " using Pathfinding...")
+
+    local path = PathfindingService:FindPathAsync(hrp.Position, targetPos)
+
+    if not path then
+        dprint("❌ Path not found, using direct MoveTo...")
+        humanoid:MoveTo(targetPos)
+        task.wait(2)
+        isWalking = false
+        return false
+    end
+
+    local waypoints = path:GetWaypoints()
+    local blocked = false
+
+    local blockedConn = path.Blocked:Connect(function()
+        dprint("⚠️ Path blocked at waypoint, recalculating...")
+        blocked = true
+    end)
+
+    local startTime = tick()
+
+    for i, waypoint in ipairs(waypoints) do
+        if not isWalking or tick() - startTime > timeoutDuration then break end
+
+        humanoid:MoveTo(waypoint.Position)
+
+        local reached = false
+        for j = 1, 100 do
+            if not isWalking then break end
+            local dist = (hrp.Position - waypoint.Position).Magnitude
+            if dist < 5 then
+                reached = true
+                break
+            end
+            if blocked then break end
+            task.wait(0.1)
+        end
+
+        if blocked or not reached then break end
+    end
+
+    blockedConn:Disconnect()
+
+    local finalDistance = (hrp.Position - targetPos).Magnitude
+
+    if finalDistance < 5 then
+        dprint("✅ Arrived at " .. label .. " (distance: " .. math.floor(finalDistance) .. " studs)")
+        isWalking = false
+        return true
+    else
+        dprint("⏱️ Timeout at " .. label .. " (distance: " .. math.floor(finalDistance) .. " studs)")
+        isWalking = false
+        return false
     end
 end
 
-AntiAFKToggle:OnChanged(function(v)
-    antiAFK = v
-    if v then startAntiAFK() else stopAntiAFK() end
-end)
+--// WAVEBLOCKER
+local function createWaveblocker(root)
+    if not root or not root.Parent then
+        dprint("❌ Wave root not found")
+        return nil
+    end
 
---// ================= AUTO FARM =================
+    local rootSize = root.Size
 
-local farmThread
+    local waveblocker = Instance.new("Part")
+    waveblocker.Name = "Waveblocker"
+    waveblocker.Size = Vector3.new(rootSize.X + 30, rootSize.Y + 50, rootSize.Z + 100)
+    waveblocker.CanCollide = true
+    waveblocker.Transparency = 1
+    waveblocker.CFrame = root.CFrame
+    waveblocker.Parent = workspace
 
-local function startFarm()
-    if farmThread then return end
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = root
+    weld.Part1 = waveblocker
+    weld.Parent = waveblocker
 
-    farmThread = task.spawn(function()
-        while autoFarm do
-            local shopFolder = workspace:FindFirstChild("TeleportParts")
-            local shop = shopFolder and shopFolder:FindFirstChild("ShopTeleportPart")
-            local line = workspace.Boundaries.MainBoundary
+    dprint("📦 Waveblocker created, size: " .. tostring(waveblocker.Size))
+    return waveblocker
+end
 
-            -- 🔹 1. TELEPORT KE LINE
-            if line then
-                tp(line)
+local function removePlatform(platform)
+    if platform and platform.Parent then
+        platform:Destroy()
+    end
+end
+
+--// AUTO FARM
+local wavePlatform = nil
+
+local function startAutoFarm()
+    if farmConnection then return end
+
+    farmConnection = task.spawn(function()
+        local waves = workspace:WaitForChild("Waves")
+
+        while autoFarmBlock do
+            if walkToPositionDetect(kickCF.Position, 5, "Kick Area") then
+                dprint("✅ Ready to kick!")
+            else
+                dprint("⚠️ Couldn't reach kick area, proceeding anyway")
+            end
+
+            local kickBtn = playerGui:WaitForChild("HUD"):WaitForChild("KickButton")
+            if kickBtn and getconnections then
+                pcall(function() for _, conn in pairs(getconnections(kickBtn.Activated)) do conn:Fire() end end)
+            end
+
+            local newWave
+            local conn
+            conn = waves.ChildAdded:Connect(function(child)
+                newWave = child
+            end)
+            repeat task.wait() until newWave or not autoFarmBlock
+            if conn then conn:Disconnect() end
+            if not autoFarmBlock then break end
+
+            task.wait(0.05)
+
+            local root
+            if newWave:IsA("Model") then
+                root = newWave:FindFirstChild("Root") or newWave.PrimaryPart
+            elseif newWave:IsA("BasePart") then
+                root = newWave
+            end
+
+            if root then
+                if wavePlatform then
+                    dprint("🗑️ Cleaning up old waveblocker before creating new one...")
+                    removePlatform(wavePlatform)
+                    wavePlatform = nil
+                end
+
+                wavePlatform = createWaveblocker(root)
+
+                if walkToPositionDetect(KickArea.Position, 18, "Safe Area (KickArea)") then
+                    dprint("✅ Standing in safe area!")
+                else
+                    dprint("⚠️ Couldn't reach safe area, waiting anyway")
+                end
+
+                repeat task.wait() until #waves:GetChildren() == 0
+                if not autoFarmBlock then break end
+
+                if wavePlatform then
+                    dprint("🗑️ Removing waveblocker...")
+                    removePlatform(wavePlatform)
+                    wavePlatform = nil
+                end
             end
 
             task.wait(1)
-            if not autoFarm then break end
-
-            -- 🔹 2. AMBIL MODEL
-            local m = getModel()
-            if m then
-                local zone = getSelectedZone()
-                local hrp = getModelHRP(m)
-
-                -- 🔹 3. JALANKAN FARM
-                if farmMode == "Move" then
-                    if m and hrp then
-                        m:SetAttribute("MovementSpeed", speed)
-
-                        if zone then
-                            local reached = false
-                            local t = 0
-
-                            while not reached and t < 7 and autoFarm do
-                                local dist = (hrp.Position - zone.Position).Magnitude
-
-                                if dist <= 35 then
-                                    reached = true
-                                    break
-                                end
-
-                                task.wait(0.1)
-                                t += 0.1
-                            end
-						else
-							warn("zone Lost")
-                        end
-
-                        m:SetAttribute("MovementSpeed", 0)
-					else
-						warn("Lost")
-                    end
-                elseif farmMode == "Teleport" then
-                    if not m.PrimaryPart then
-                        local part = m:FindFirstChildWhichIsA("BasePart")
-                        if part then
-                            m.PrimaryPart = part
-                        end
-                    end
-
-                    if m.PrimaryPart then
-                        if zone then
-                            m:SetPrimaryPartCFrame(zone.CFrame + Vector3.new(0, -5, 0))
-                        else
-                            m:SetPrimaryPartCFrame(workspace.CollectZones.base16.CFrame + Vector3.new(0, -5, 0))
-                        end
-
-                        m:SetAttribute("MovementSpeed", 0)
-                    end
-                end
-
-                -- 🔹 4. TUNGGU MODEL HILANG
-                while m and m.Parent and autoFarm do
-                    task.wait(0.3)
-                end
-
-                if not autoFarm then break end
-
-                -- 🔹 5. TUNGGU CUTSCENE MUNCUL
-                local cutscene
-                while not cutscene and autoFarm do
-                    cutscene = workspace:FindFirstChild("CUTSENE_FOLD")
-                    task.wait(0.2)
-                end
-
-                -- 🔹 6. TUNGGU CUTSCENE HILANG
-                while cutscene and cutscene.Parent and autoFarm do
-                    task.wait(0.2)
-                end
-				wait(0.5)
-            end
-
-            if not autoFarm then break end
-
-            -- 🔹 7. TELEPORT KE SHOP
-            if shop then
-                tp(shop)
-            end
-
-            task.wait(1.7)
         end
-
-        farmThread = nil
     end)
 end
 
-local function stopFarm()
-    autoFarm = false
-    if farmThread then
-        task.cancel(farmThread)
-        farmThread = nil
+local function stopAutoFarm()
+    autoFarmBlock = false
+    farmConnection = nil
+    isWalking = false
+
+    if currentTween then
+        currentTween:Cancel()
+        currentTween = nil
     end
 end
+
+--// ================= TOGGLE HANDLERS =================
+
+DebugToggle:OnChanged(function(v)
+    debugMode = v
+end)
+
+AutoClick:OnChanged(function(v)
+    autoClickBonus = v
+    if v then
+        setupBonusAutoClick()
+    else
+        clearConnections()
+    end
+end)
+
+AutoKick:OnChanged(function(v)
+    autoKick = v
+    if v then
+        startAutoKick()
+    else
+        stopAutoKick()
+    end
+end)
+
+AutoCollect:OnChanged(function(v)
+    autoCollectCash = v
+    if v then
+        startAutoCollectCash()
+    else
+        stopAutoCollectCash()
+    end
+end)
 
 AutoFarm:OnChanged(function(v)
-    autoFarm = v
-    if v then startFarm() else stopFarm() end
-end)
-
-AutoReward:OnChanged(function(v)
-    autoReward = v
-
+    autoFarmBlock = v
     if v then
-        startReward()
+        startAutoFarm()
     else
-        stopReward()
+        stopAutoFarm()
     end
 end)
 
---// ================= AUTO SELL (SMART LOOP) =================
-local sellThread
+--// ================= MISC UI =================
 
-startSelling = function()
-	if sellThread then return end
-
-	sellThread = task.spawn(function()
-		while autoSell do
-        	if not autoSell then
-            	task.wait(0.5)
-            	continue
-        	end
-
-        	local tools = getTools()
-
-        	for i = 1, #tools do
-            	if not autoSell then break end
-
-            	local tool = tools[i]
-            	if not tool:IsA("Tool") then continue end
-
-            	local attr = tool:GetAttributes()
-            	local id = attr.EntityId
-            	if not id then continue end
-
-            	-- 🧠 Brainrot
-            	if attr.BrainrotType then
-                	if sellMode == "ALL" then
-                    	SellBrainrot:InvokeServer(id)
-						print("[Sell] Selling_All...")
-
-                	elseif sellMode == "Mutation" then
-                    	local mut = attr.BrainrotMutation or "NORMAL"
-                    	if selectedMutations[mut] then
-                        	SellBrainrot:InvokeServer(id)
-							print("[Sell] Selling_Brainrot...")
-                   		end
-                	end
-            	end
-
-            	-- 🎁 LuckyBlock
-            	if attr.LuckyBlockType then
-                	SellLucky:InvokeServer(id)
-					print("[Sell] Selling_Lucky_Block...")
-            	end
-
-        	end
-
-        	-- ⏱ cooldown pintar (bisa stop kapan aja)
-        	local t = 0
-    		while t < tonumber(sell_cooldown) do
-            	if not autoSell then break end
-            	task.wait(1)
-            	t += 1
-        	end
-    	end
-	end)
-end
-
-stopSelling = function()
-	autoSell = false
-    if sellThread then
-        task.cancel(sellThread)
-        sellThread = nil
+Tabs.Main:AddSlider("TweenSpeed", {
+    Title = "Tween Speed",
+    Description = "Kecepatan movement (detik) - semakin kecil semakin cepat",
+    Min = 1,
+    Max = 150,
+    Default = 50,
+    Rounding = 1,
+    Callback = function(Value)
+        tweenSpeed = tonumber(Value)
     end
-end
-
-AutoSell:OnChanged(function(v)
-    autoSell = v
-    if v then
-        startSelling()
-    else
-        stopSelling()
-    end
-end)
-
---// ================= AUTO WAR MINIGAME =================
-
-local warThread
-local VIM = game:GetService("VirtualInputManager")
-
-local function getWarBar()
-    local hud = player.PlayerGui:FindFirstChild("HUD")
-    return hud and hud:FindFirstChild("WarBar")
-end
-
-local function getWarMovingTarget()
-    local wb = getWarBar()
-    if not wb then return nil end
-    local container = wb:FindFirstChild("TargetContainer")
-    return container and container:FindFirstChild("MovingTarget")
-end
-
-local function getWarSideTarget()
-    local wb = getWarBar()
-    if not wb then return nil end
-    local miniMap = wb:FindFirstChild("MiniMap2")
-    if not miniMap then return nil end
-    return miniMap:FindFirstChild(selectedWarMinigame) -- "Coral" / "Luke"
-end
-
-local function isWarAligned(moving, target)
-    local mCenterX = moving.AbsolutePosition.X + (moving.AbsoluteSize.X / 2)
-    local tLeft    = target.AbsolutePosition.X
-    local tRight   = target.AbsolutePosition.X + target.AbsoluteSize.X
-    return mCenterX >= tLeft and mCenterX <= tRight
-end
-
-local function triggerWarKey()
-    VIM:SendKeyEvent(true,  Enum.KeyCode.ButtonX, false, game)
-    task.wait(0.1)
-    VIM:SendKeyEvent(false, Enum.KeyCode.ButtonX, false, game)
-end
-
-local function startWarMinigame()
-    if warThread then return end
-
-    warThread = task.spawn(function()
-        local triggered = false
-
-        while autoWarMinigame do
-            local wb = getWarBar()
-
-            if wb and wb.Visible then
-                local movingTarget = getWarMovingTarget()
-                local sideTarget   = getWarSideTarget()
-                local triggerBtn = player.PlayerGui.HUD.WarBar.ConsoleBTN.BTN.Button
-
-                if movingTarget and sideTarget then
-                    if isWarAligned(movingTarget, sideTarget) then
-                        if not triggered and getconnections then
-                            triggered = true
-                            pcall(function() for _, conn in pairs(getconnections(triggerBtn.MouseButton1Click)) do conn:Fire() end end)
-                            pcall(function() for _, conn in pairs(getconnections(triggerBtn.Activated)) do conn:Fire() end end)
-                            task.wait(0.4)
-                        end
-                    else
-                        triggered = false
-                    end
-                end
-            else
-                triggered = false
-            end
-
-            task.wait(0.016)
-        end
-
-        warThread = nil
-    end)
-end
-
-local function stopWarMinigame()
-    autoWarMinigame = false
-    if warThread then
-        task.cancel(warThread)
-        warThread = nil
-    end
-end
-
-AutoWar:OnChanged(function(v)
-    autoWarMinigame = v
-    if v then
-        startWarMinigame()
-    else
-        stopWarMinigame()
-    end
-end)
-
---// ================= AUTO CANON MINIGAME =================
-
-local canonThread
-
-local function getCanonBar()
-    local hud = player.PlayerGui:FindFirstChild("HUD")
-    return hud and hud:FindFirstChild("CannonBar")
-end
-
-local function getCanonMovingTarget()
-    local cb = getCanonBar()
-    if not cb then return nil end
-    local container = cb:FindFirstChild("TargetContainer")
-    return container and container:FindFirstChild("MovingTarget")
-end
-
-local function getCanonTarget()
-    local cb = getCanonBar()
-    if not cb then return nil end
-    local miniMap = cb:FindFirstChild("MiniMap2")
-    if not miniMap then return nil end
-    return miniMap:FindFirstChild("Target") -- single target, no side
-end
-
-local function isCanonAligned(moving, target)
-    local mCenterX = moving.AbsolutePosition.X + (moving.AbsoluteSize.X / 2)
-    local tLeft    = target.AbsolutePosition.X
-    local tRight   = target.AbsolutePosition.X + target.AbsoluteSize.X
-    return mCenterX >= tLeft and mCenterX <= tRight
-end
-
-local function triggerCanonKey()
-    VIM:SendKeyEvent(true,  Enum.KeyCode.ButtonX, false, game)
-    task.wait(0.1)
-    VIM:SendKeyEvent(false, Enum.KeyCode.ButtonX, false, game)
-end
-
-local function startCanonMinigame()
-    if canonThread then return end
-
-    canonThread = task.spawn(function()
-        local triggered = false
-
-        while autoCanonMinigame do
-            local cb = getCanonBar()
-
-            if cb and cb.Visible then
-                local movingTarget = getCanonMovingTarget()
-                local canonTarget  = getCanonTarget()
-                local triggerBtn = player.PlayerGui.HUD.CannonBar.ConsoleBTN.BTN.Button
-
-                if movingTarget and canonTarget then
-                    if isCanonAligned(movingTarget, canonTarget) then
-                        if not triggered and getconnections then
-                            triggered = true
-                            pcall(function() for _, conn in pairs(getconnections(triggerBtn.MouseButton1Click)) do conn:Fire() end end)
-                            pcall(function() for _, conn in pairs(getconnections(triggerBtn.Activated)) do conn:Fire() end end)
-                            task.wait(0.4)
-                        end
-                    else
-                        triggered = false
-                    end
-                end
-            else
-                triggered = false
-            end
-
-            task.wait(0.016)
-        end
-
-        canonThread = nil
-    end)
-end
-
-local function stopCanonMinigame()
-    autoCanonMinigame = false
-    if canonThread then
-        task.cancel(canonThread)
-        canonThread = nil
-    end
-end
-
-AutoCanon:OnChanged(function(v)
-    autoCanonMinigame = v
-    if v then
-        startCanonMinigame()
-    else
-        stopCanonMinigame()
-    end
-end)
-
---// ================= NOTIF =================
-
-Fluent:Notify({
-    Title = "Loaded",
-    Content = "Script aktif 🚀",
-    Duration = 4
 })
 
-Window:SelectTab(1)
+--// ================= TELEPORT BUTTONS =================
+
+Tabs.Teleport:AddButton({
+    Title = "Teleport - Weight Shop",
+    Description = "Move you to weight stand",
+    Callback = function()
+        local char = player.Character or player.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart")
+        hrp.CFrame = WeightShop
+    end
+})
+
+Tabs.Teleport:AddButton({
+    Title = "Teleport - Run Upgrades",
+    Description = "Move you to speed stand",
+    Callback = function()
+        local char = player.Character or player.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart")
+        hrp.CFrame = SpeedUpgrade
+    end
+})
+
+Tabs.Teleport:AddButton({
+    Title = "Teleport - Sell's",
+    Description = "Move you to sell stand",
+    Callback = function()
+        local char = player.Character or player.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart")
+        hrp.CFrame = SellStand
+    end
+})
+
+Tabs.Main:AddButton({
+    Title = "Teleport",
+    Description = "Move you to kick/safe zone",
+    Callback = function()
+        local char = player.Character or player.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart")
+        hrp.CFrame = CFrame.new(699.971252, 3.00000715, 307.285217, 0.0240840334, -2.75321117e-08, 0.999709964, -2.08743902e-08, 1, 2.80429848e-08, -0.999709964, -2.15437232e-08, 0.0240840334)
+    end
+})
