@@ -238,7 +238,7 @@ local function startAutoCollectCash()
 
                             if slotNumber then
                                 CollectCashRE:FireServer(slotNumber)
-                                CashVFX(player.Character.HumanoidRootPart, slot)
+                                CashVFX(player.Character, slot)
                                 dprint("💰 Collected cash from slot: " .. slotNumber)
                                 task.wait(0.8)
                             end
