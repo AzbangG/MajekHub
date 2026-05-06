@@ -2,8 +2,10 @@
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))() --require(RS.Modules.Fluent)
 
 local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
 local RS = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 
@@ -21,31 +23,80 @@ local CollectAllRF1 = KnitIndex.EventService.RF.CollectAllEggs
 local CollectAllRF2 = KnitIndex.EventService.RF.CollectAllInfinityCoin
 local StartRun = KnitIndex.RunningService.RF.StartRun
 
---// REMOVE AUTORECONNECT (SAFE)
-pcall(function()
-    local pg = player.PlayerGui
- 
-    local hud = pg:FindFirstChild("HUD")
-    if hud and hud:FindFirstChild("AutoReconnect") then
-        hud.AutoReconnect:Destroy()
-    end
- 
-    local hud2 = pg:FindFirstChild("HUD_TEST")
-    if hud2 and hud2:FindFirstChild("AutoReconnect") then
-        hud2.AutoReconnect:Destroy()
-    end
-end)
+--// DETECT MOBILE
+local isMobile = UserInputService.TouchEnabled
 
 --// WINDOW
 local Window = Fluent:CreateWindow({
-    Title = "Be A Lucky Block",
+    Title = "No Key | Be A Lucky Block |",
     SubTitle = "Majek Hub",
     TabWidth = 160,
     Size = UDim2.fromOffset(520, 400),
-    Acrylic = true,
+    Acrylic = false,
     Theme = "Darker",
     MinimizeKey = Enum.KeyCode.LeftControl
 })
+
+--// MINIMIZE BUTTON - ONLY MOBILE
+if not isMobile then
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+
+    local ScreenGui = Instance.new("ScreenGui")
+    local ImageButton = Instance.new("ImageButton")
+    local UICorner = Instance.new("UICorner")
+    local UIStroke = Instance.new("UIStroke")
+    local UIAspectRatioConstraint = Instance.new("UIAspectRatioConstraint")
+
+    ScreenGui.Parent = CoreGui
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ImageButton.Parent = ScreenGui
+    ImageButton.AnchorPoint = Vector2.new(0.5, 0.5)
+    ImageButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    ImageButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+    ImageButton.BorderSizePixel = 0
+    ImageButton.Position = UDim2.new(0.100000001, 0, 0.200000003, 0)
+    ImageButton.Size = UDim2.new(0.1, 0, 0.1, 0)
+    ImageButton.Image = "rbxassetid://117056093959759"
+    UICorner.CornerRadius = UDim.new(1, 0)
+    UICorner.Parent = ImageButton
+    UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    UIStroke.Color = Color3.fromRGB(85, 205, 255)
+    UIStroke.Thickness = 3
+    UIStroke.Parent = ImageButton
+    UIAspectRatioConstraint.Parent = ImageButton
+
+    ImageButton.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = ImageButton.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            ImageButton.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    ImageButton.MouseButton1Click:Connect(function()
+        Window:Minimize()
+    end)
+end
 
 local Tabs = {
     Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
@@ -152,6 +203,21 @@ local AutoCanon = Tabs.Minigame:AddToggle("Canon", {
 })
 
 --// ================= FUNCTIONS =================
+
+--// REMOVE AUTORECONNECT (SAFE)
+pcall(function()
+    local pg = player.PlayerGui
+ 
+    local hud = pg:FindFirstChild("HUD")
+    if hud and hud:FindFirstChild("AutoReconnect") then
+        hud.AutoReconnect:Destroy()
+    end
+ 
+    local hud2 = pg:FindFirstChild("HUD_TEST")
+    if hud2 and hud2:FindFirstChild("AutoReconnect") then
+        hud2.AutoReconnect:Destroy()
+    end
+end)
 
 local function getZones()
     local list = {}
