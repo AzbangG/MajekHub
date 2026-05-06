@@ -5,6 +5,8 @@ local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local PathfindingService = game:GetService("PathfindingService")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
 
 local KickRE = RS:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Network"):WaitForChild("rev_KickEvent")
 local CollectRE = RS:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Network"):WaitForChild("rev_KickCollect")
@@ -17,24 +19,89 @@ local playerGui = player.PlayerGui
 -- // MODULES
 local CashVFX = require(RS.Modules.ServicesLoader.VFXService.CashVFX)
 
+--// DETECT MOBILE
+local isMobile = UserInputService.TouchEnabled
+
 --// LOAD UI
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 --// WINDOW
 local Window = Fluent:CreateWindow({
-    Title = "Kick A Lucky Block",
+    Title = "No Key | Kick A Lucky Block |",
     SubTitle = "Majek Hub",
     TabWidth = 160,
     Size = UDim2.fromOffset(520, 400),
-    Acrylic = true,
+    Acrylic = false,
     Theme = "Darker",
     MinimizeKey = Enum.KeyCode.LeftControl
 })
 
+--// MINIMIZE BUTTON - ONLY MOBILE
+if isMobile then
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+
+    local ScreenGui = Instance.new("ScreenGui")
+    local ImageButton = Instance.new("ImageButton")
+    local UICorner = Instance.new("UICorner")
+    local UIStroke = Instance.new("UIStroke")
+    local UIAspectRatioConstraint = Instance.new("UIAspectRatioConstraint")
+
+    ScreenGui.Parent = CoreGui
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ImageButton.Parent = ScreenGui
+    ImageButton.AnchorPoint = Vector2.new(0.5, 0.5)
+    ImageButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    ImageButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+    ImageButton.BorderSizePixel = 0
+    ImageButton.Position = UDim2.new(0.100000001, 0, 0.200000003, 0)
+    ImageButton.Size = UDim2.new(0.1, 0, 0.1, 0)
+    ImageButton.Image = "rbxassetid://117056093959759"
+    UICorner.CornerRadius = UDim.new(1, 0)
+    UICorner.Parent = ImageButton
+    UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    UIStroke.Color = Color3.fromRGB(85, 205, 255)
+    UIStroke.Thickness = 3
+    UIStroke.Parent = ImageButton
+    UIAspectRatioConstraint.Parent = ImageButton
+
+    ImageButton.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = ImageButton.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            ImageButton.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    ImageButton.MouseButton1Click:Connect(function()
+        Window:Minimize()
+    end)
+end
+
+--// TABS
 local Tabs = {
     Main = Window:AddTab({ Title = "Main", Icon = "loader" }),
-    Teleport = Window:AddTab({ Title = "Teleport", Icon = "ghost" }),
-    Misc = Window:AddTab({ Title = "Misc", Icon = "dollar-sign" }),
+	Teleport = Window:AddTab({ Title = "Teleport", Icon = "ghost" }),
+    Misc =  Window:AddTab({ Title = "Misc", Icon = "dollar-sign" }),
 }
 
 --// STATE
@@ -44,55 +111,46 @@ local autoKick = false
 local kickConnections = {}
 local autoFarmBlock = false
 local farmConnection = nil
-local tweenSpeed = 50
-local currentTween = nil
-local isWalking = false
 local autoCollectCash = false
 local collectCashConnection = nil
-
-local debugMode = false -- Ganti ke true untuk lihat print log
-
---// DEBUG PRINT
-local function dprint(...)
-    if debugMode then
-        print(...)
-    end
-end
+local walkSpeed = 16
+local currentTween = nil
+local isWalking = false
 
 local KickArea = workspace.Areas.KickReady
 
 local kickCF = CFrame.new(
-    699.768311, 3.00000691, 231.199585,
-    5.44999337e-15, -1.24774999e-08, 1,
-    2.27413449e-10, 1, 1.24774999e-08,
-    -1, 2.27413449e-10, 5.45283093e-15
+   699.768311, 3.00000691, 231.199585,
+   5.44999337e-15, -1.24774999e-08, 1,
+   2.27413449e-10, 1, 1.24774999e-08,
+   -1, 2.27413449e-10, 5.45283093e-15
 )
 
 local WeightShop = CFrame.new(
-    730.311829, 3.10000825, 193.675735,
-    0.222229362, -9.29465216e-08, 0.974994421,
-    9.4676281e-08, 1, 7.37508543e-08,
-    -0.974994421, 7.59192389e-08, 0.222229362
+	730.311829, 3.10000825, 193.675735,
+	0.222229362, -9.29465216e-08, 0.974994421,
+	9.4676281e-08, 1, 7.37508543e-08,
+	-0.974994421, 7.59192389e-08, 0.222229362
 )
 
 local SpeedUpgrade = CFrame.new(
-    730.760864, 3.00000691, 268.084991,
-    -0.20107615, -4.26971773e-08, 0.979575634,
-    -1.04490127e-07, 1, 2.21388774e-08,
-    -0.979575634, -9.79043762e-08, -0.20107615
+	730.760864, 3.00000691, 268.084991,
+	-0.20107615, -4.26971773e-08, 0.979575634,
+	-1.04490127e-07, 1, 2.21388774e-08,
+	-0.979575634, -9.79043762e-08, -0.20107615
 )
 
 local SellStand = CFrame.new(
-    731.449951, 3.1000061, 328.038605,
-    -0.737040341, 2.73796763e-09, 0.675848722,
-    1.44397394e-09, 1, -2.47644261e-09,
-    -0.675848722, -8.49330106e-10, -0.737040341
+	731.449951, 3.1000061, 328.038605,
+	-0.737040341, 2.73796763e-09, 0.675848722,
+	1.44397394e-09, 1, -2.47644261e-09,
+	-0.675848722, -8.49330106e-10, -0.737040341
 )
 
 --// ================= UI =================
 local AutoClick = Tabs.Main:AddToggle("Auto", {
     Title = "Auto Bonus",
-    Description = "Auto 2x(Bonus) while training",
+	Description = "Auto 2x(Bonus) while training",
     Default = false
 })
 
@@ -108,21 +166,14 @@ local AutoFarm = Tabs.Main:AddToggle("AutoFarm", {
     Default = false
 })
 
-local AutoCollect = Tabs.Misc:AddToggle("AutoCollect", {
+--// MISC TAB TOGGLES
+local AutoCollectCashToggle = Tabs.Misc:AddToggle("AutoCollect", {
     Title = "Auto Collect Cash",
-    Description = "Auto collect cash every 3 min",
+    Description = "Collect cash every 3 minutes",
     Default = false
 })
 
-local DebugToggle = Tabs.Misc:AddToggle("DebugMode", {
-    Title = "Debug Mode",
-    Description = "Show print logs in console",
-    Default = false
-})
-
---// ================= FUNCTIONS =================
-
---// CLEAR BONUS CONNECTIONS
+--// FUNCTION AUTO CLICK BONUS
 local function clearConnections()
     for _, conn in ipairs(bonusConnections) do
         if conn and conn.Disconnect then
@@ -132,16 +183,18 @@ local function clearConnections()
     table.clear(bonusConnections)
 end
 
---// CLICK SCREEN
 local function clickScreen()
-    local x = 12.5
-    local y = 20
+    local camera = workspace.CurrentCamera
+    local viewport = camera.ViewportSize
+
+    local x = 12.5 
+    local y = 20 
+
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
     task.wait(0.05)
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
 end
 
---// TELEPORT
 local function teleport(cf)
     local char = player.Character or player.CharacterAdded:Wait()
     local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -150,20 +203,68 @@ local function teleport(cf)
     end
 end
 
---// GET MY PLOT
+--// GET MY PLOTS
 local function getMyPlots()
-    for _, plot in pairs(workspace.Plots:GetChildren()) do
-        local ownerAttr = plot:GetAttribute("Owner") or plot:GetAttribute("PlotOwner")
-        if ownerAttr == player.Name or ownerAttr == player.UserId then
-            dprint("✅ Plot found! (Attribute)")
-            return plot
+    for i, v in pairs(workspace.Plots:GetChildren()) do
+        if v:IsA("Model") and v:GetAttribute("Owner") == player.Name then
+            return v
         end
     end
-    dprint("⚠️ No plot found for: " .. player.Name)
     return nil
 end
 
---// AUTO CLICK BONUS
+--// AUTO COLLECT CASH
+local function collectCash()
+    local MyPlotModel = getMyPlots()
+    
+    if not MyPlotModel then
+        return false
+    end
+    
+    local Buttons = MyPlotModel:FindFirstChild("Buttons")
+    if not Buttons then
+        return false
+    end
+    
+    local totalButtons = #Buttons:GetChildren()
+    local collected = 0
+    
+    for numberIndex = 1, totalButtons do
+        local buttonPart = Buttons:FindFirstChild("Slot" .. numberIndex)
+            
+            if buttonPart then
+                CollectCashRE:FireServer(numberIndex)
+                CashVFX(player.Character, buttonPart)
+                collected = collected + 1
+            end
+            
+            task.wait(0.5)
+    end
+    
+    return collected > 0
+end
+
+local function startAutoCollectCash()
+    if collectCashConnection then return end
+    
+    collectCashConnection = task.spawn(function()
+        while autoCollectCash do
+            task.wait(180)
+            
+            if autoCollectCash then
+                collectCash()
+            end
+        end
+    end)
+end
+
+local function stopAutoCollectCash()
+    autoCollectCash = false
+    if collectCashConnection then
+        collectCashConnection = nil
+    end
+end
+
 local function setupBonusAutoClick()
     clearConnections()
 
@@ -218,56 +319,6 @@ local function setupBonusAutoClick()
     table.insert(bonusConnections, addedConn)
 end
 
---// AUTO COLLECT CASH
-local function startAutoCollectCash()
-    if collectCashConnection then return end
-
-    collectCashConnection = task.spawn(function()
-        while autoCollectCash do
-            local MyPlotModel = getMyPlots()
-
-            if MyPlotModel then
-                local buttonsFolder = MyPlotModel:FindFirstChild("Buttons")
-
-                if buttonsFolder then
-                    local slots = buttonsFolder:GetChildren()
-
-                    for _, slot in ipairs(slots) do
-                        if autoCollectCash then
-                            local slotNumber = tonumber(slot.Name:match("%d+"))
-
-                            if slotNumber then
-                                CollectCashRE:FireServer(slotNumber)
-                                CashVFX(player.Character, slot)
-                                dprint("💰 Collected cash from slot: " .. slotNumber)
-                                task.wait(0.8)
-                            end
-                        end
-                    end
-                else
-                    dprint("⚠️ Buttons folder not found in plot")
-                end
-            else
-                dprint("⚠️ Plot not found, retrying...")
-            end
-
-            for i = 180, 1, -1 do
-                if not autoCollectCash then break end
-                task.wait(1)
-            end
-        end
-
-        collectCashConnection = nil
-        dprint("🛑 Auto Collect Cash stopped")
-    end)
-end
-
-local function stopAutoCollectCash()
-    autoCollectCash = false
-    collectCashConnection = nil
-    dprint("🛑 Auto Collect Cash stopped")
-end
-
 --// AUTO KICK
 local function clearKickConnections()
     for _, conn in ipairs(kickConnections) do
@@ -280,144 +331,173 @@ end
 
 local function startAutoKick()
     clearKickConnections()
-
+    
     pcall(function()
         local kickMinigame = playerGui:WaitForChild("KickMinigame")
         local bar = kickMinigame:WaitForChild("Bar")
         local movingBar = bar:WaitForChild("MovingBar")
-
+        
         local conn = movingBar:GetPropertyChangedSignal("Size"):Connect(function()
             if not autoKick then return end
+            
             local size = movingBar.Size
             if size.X.Scale >= 1 and size.Y.Scale >= 1 then
                 clickScreen()
-                dprint("✅ Kicked! (KickMinigame)")
             end
         end)
-
+        
         table.insert(kickConnections, conn)
-        dprint("📍 KickMinigame listener attached")
     end)
-
+    
     pcall(function()
         local stadiumEvent = playerGui:WaitForChild("StadiumEvent")
         local bar = stadiumEvent:WaitForChild("Bar")
         local movingBar = bar:WaitForChild("MovingBar")
-
+        
         local conn = movingBar:GetPropertyChangedSignal("Size"):Connect(function()
             if not autoKick then return end
+            
             local size = movingBar.Size
             if size.X.Scale >= 1 and size.Y.Scale >= 1 then
                 clickScreen()
-                dprint("✅ Kicked! (StadiumEvent)")
             end
         end)
-
+        
         table.insert(kickConnections, conn)
-        dprint("📍 StadiumEvent listener attached")
     end)
 end
 
 local function stopAutoKick()
     clearKickConnections()
-    dprint("🛑 AutoKick stopped")
 end
 
---// PATHFINDING WALK
+--// WALK TO POSITION
 local function walkToPositionDetect(targetPos, timeoutDuration, label)
     label = label or "Target"
     timeoutDuration = timeoutDuration or 10
-
+    
     if isWalking then
-        dprint("⚠️ Already walking, please wait...")
         return false
     end
-
+    
     local char = player.Character
-    if not char then
-        dprint("❌ " .. label .. ": Character not found")
-        return false
+    if not char then 
+        return false 
     end
-
+    
     local humanoid = char:FindFirstChild("Humanoid")
-    if not humanoid then
-        dprint("❌ " .. label .. ": Humanoid not found")
-        return false
+    if not humanoid then 
+        return false 
     end
-
+    
     local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        dprint("❌ " .. label .. ": HRP not found")
-        return false
+    if not hrp then 
+        return false 
     end
-
+    
     isWalking = true
-    dprint("🚶 Walking to " .. label .. " using Pathfinding...")
-
-    local path = PathfindingService:FindPathAsync(hrp.Position, targetPos)
-
-    if not path then
-        dprint("❌ Path not found, using direct MoveTo...")
-        humanoid:MoveTo(targetPos)
-        task.wait(2)
-        isWalking = false
-        return false
-    end
-
-    local waypoints = path:GetWaypoints()
-    local blocked = false
-
-    local blockedConn = path.Blocked:Connect(function()
-        dprint("⚠️ Path blocked at waypoint, recalculating...")
-        blocked = true
-    end)
-
+    humanoid.WalkSpeed = walkSpeed
+    
     local startTime = tick()
-
-    for i, waypoint in ipairs(waypoints) do
-        if not isWalking or tick() - startTime > timeoutDuration then break end
-
-        humanoid:MoveTo(waypoint.Position)
-
-        local reached = false
-        for j = 1, 100 do
-            if not isWalking then break end
-            local dist = (hrp.Position - waypoint.Position).Magnitude
-            if dist < 5 then
-                reached = true
-                break
+    local maxRetries = 3
+    local currentRetry = 0
+    
+    while currentRetry < maxRetries do
+        currentRetry = currentRetry + 1
+        
+        local path = nil
+        local success = pcall(function()
+            path = PathfindingService:FindPathAsync(hrp.Position, targetPos)
+        end)
+        
+        if success and path then
+            local waypoints = path:GetWaypoints()
+            local blocked = false
+            
+            local blockedConn = path.Blocked:Connect(function(blockedWaypoint)
+                blocked = true
+            end)
+            
+            local pathSuccess = true
+            
+            for i, waypoint in ipairs(waypoints) do
+                if not isWalking or tick() - startTime > timeoutDuration then
+                    blockedConn:Disconnect()
+                    pathSuccess = false
+                    break
+                end
+                
+                humanoid:MoveTo(waypoint.Position)
+                
+                local reached = false
+                for j = 1, 100 do
+                    if not isWalking then break end
+                    
+                    local dist = (hrp.Position - waypoint.Position).Magnitude
+                    if dist < 5 then
+                        reached = true
+                        break
+                    end
+                    
+                    if blocked then
+                        break
+                    end
+                    
+                    task.wait(0.1)
+                end
+                
+                if blocked or not reached then
+                    pathSuccess = false
+                    break
+                end
             end
-            if blocked then break end
-            task.wait(0.1)
+            
+            blockedConn:Disconnect()
+            
+            if pathSuccess then
+                local finalDistance = (hrp.Position - targetPos).Magnitude
+                
+                if finalDistance < 5 then
+                    isWalking = false
+                    return true
+                end
+            end
+        else
+            if currentRetry < maxRetries then
+                task.wait(1)
+            end
         end
-
-        if blocked or not reached then break end
+        
+        if currentRetry >= maxRetries then
+            humanoid:MoveTo(targetPos)
+            task.wait(0.5)
+            
+            while tick() - startTime < timeoutDuration do
+                local dist = (hrp.Position - targetPos).Magnitude
+                if dist < 5 then
+                    isWalking = false
+                    return true
+                end
+                task.wait(0.1)
+            end
+            
+            isWalking = false
+            return false
+        end
     end
-
-    blockedConn:Disconnect()
-
-    local finalDistance = (hrp.Position - targetPos).Magnitude
-
-    if finalDistance < 5 then
-        dprint("✅ Arrived at " .. label .. " (distance: " .. math.floor(finalDistance) .. " studs)")
-        isWalking = false
-        return true
-    else
-        dprint("⏱️ Timeout at " .. label .. " (distance: " .. math.floor(finalDistance) .. " studs)")
-        isWalking = false
-        return false
-    end
+    
+    isWalking = false
+    return false
 end
 
 --// WAVEBLOCKER
 local function createWaveblocker(root)
-    if not root or not root.Parent then
-        dprint("❌ Wave root not found")
-        return nil
+    if not root or not root.Parent then 
+        return nil 
     end
-
+    
     local rootSize = root.Size
-
+    
     local waveblocker = Instance.new("Part")
     waveblocker.Name = "Waveblocker"
     waveblocker.Size = Vector3.new(rootSize.X + 30, rootSize.Y + 50, rootSize.Z + 100)
@@ -425,13 +505,12 @@ local function createWaveblocker(root)
     waveblocker.Transparency = 1
     waveblocker.CFrame = root.CFrame
     waveblocker.Parent = workspace
-
+    
     local weld = Instance.new("WeldConstraint")
     weld.Part0 = root
     weld.Part1 = waveblocker
     weld.Parent = waveblocker
-
-    dprint("📦 Waveblocker created, size: " .. tostring(waveblocker.Size))
+    
     return waveblocker
 end
 
@@ -446,22 +525,18 @@ local wavePlatform = nil
 
 local function startAutoFarm()
     if farmConnection then return end
-
+    
     farmConnection = task.spawn(function()
         local waves = workspace:WaitForChild("Waves")
-
+        
         while autoFarmBlock do
-            if walkToPositionDetect(kickCF.Position, 5, "Kick Area") then
-                dprint("✅ Ready to kick!")
-            else
-                dprint("⚠️ Couldn't reach kick area, proceeding anyway")
-            end
-
+            walkToPositionDetect(kickCF.Position, 5, "Kick Area")
+            
             local kickBtn = playerGui:WaitForChild("HUD"):WaitForChild("KickButton")
             if kickBtn and getconnections then
                 pcall(function() for _, conn in pairs(getconnections(kickBtn.Activated)) do conn:Fire() end end)
             end
-
+            
             local newWave
             local conn
             conn = waves.ChildAdded:Connect(function(child)
@@ -470,41 +545,36 @@ local function startAutoFarm()
             repeat task.wait() until newWave or not autoFarmBlock
             if conn then conn:Disconnect() end
             if not autoFarmBlock then break end
-
+            
             task.wait(0.05)
-
+            
             local root
             if newWave:IsA("Model") then
-                root = newWave:FindFirstChild("Root") or newWave.PrimaryPart
+                root = newWave:FindFirstChild("Root")
+                    or newWave.PrimaryPart
             elseif newWave:IsA("BasePart") then
                 root = newWave
             end
-
+            
             if root then
                 if wavePlatform then
-                    dprint("🗑️ Cleaning up old waveblocker before creating new one...")
                     removePlatform(wavePlatform)
                     wavePlatform = nil
                 end
-
+                
                 wavePlatform = createWaveblocker(root)
-
-                if walkToPositionDetect(KickArea.Position, 18, "Safe Area (KickArea)") then
-                    dprint("✅ Standing in safe area!")
-                else
-                    dprint("⚠️ Couldn't reach safe area, waiting anyway")
-                end
-
+                
+                walkToPositionDetect(KickArea.Position, 18, "Safe Area (KickArea)")
+                
                 repeat task.wait() until #waves:GetChildren() == 0
                 if not autoFarmBlock then break end
-
+                
                 if wavePlatform then
-                    dprint("🗑️ Removing waveblocker...")
                     removePlatform(wavePlatform)
                     wavePlatform = nil
                 end
             end
-
+            
             task.wait(1)
         end
     end)
@@ -514,18 +584,12 @@ local function stopAutoFarm()
     autoFarmBlock = false
     farmConnection = nil
     isWalking = false
-
+    
     if currentTween then
         currentTween:Cancel()
         currentTween = nil
     end
 end
-
---// ================= TOGGLE HANDLERS =================
-
-DebugToggle:OnChanged(function(v)
-    debugMode = v
-end)
 
 AutoClick:OnChanged(function(v)
     autoClickBonus = v
@@ -538,6 +602,7 @@ end)
 
 AutoKick:OnChanged(function(v)
     autoKick = v
+
     if v then
         startAutoKick()
     else
@@ -545,8 +610,9 @@ AutoKick:OnChanged(function(v)
     end
 end)
 
-AutoCollect:OnChanged(function(v)
+AutoCollectCashToggle:OnChanged(function(v)
     autoCollectCash = v
+    
     if v then
         startAutoCollectCash()
     else
@@ -554,30 +620,23 @@ AutoCollect:OnChanged(function(v)
     end
 end)
 
+Tabs.Misc:AddButton({
+    Title = "Collect Cash Now",
+    Description = "Collect cash immediately",
+    Callback = function()
+        collectCash()
+    end
+})
+ 
 AutoFarm:OnChanged(function(v)
     autoFarmBlock = v
+ 
     if v then
         startAutoFarm()
     else
         stopAutoFarm()
     end
 end)
-
---// ================= MISC UI =================
-
-Tabs.Main:AddSlider("TweenSpeed", {
-    Title = "Tween Speed",
-    Description = "Kecepatan movement (detik) - semakin kecil semakin cepat",
-    Min = 1,
-    Max = 150,
-    Default = 50,
-    Rounding = 1,
-    Callback = function(Value)
-        tweenSpeed = tonumber(Value)
-    end
-})
-
---// ================= TELEPORT BUTTONS =================
 
 Tabs.Teleport:AddButton({
     Title = "Teleport - Weight Shop",
@@ -618,3 +677,4 @@ Tabs.Main:AddButton({
         hrp.CFrame = CFrame.new(699.971252, 3.00000715, 307.285217, 0.0240840334, -2.75321117e-08, 0.999709964, -2.08743902e-08, 1, 2.80429848e-08, -0.999709964, -2.15437232e-08, 0.0240840334)
     end
 })
+Window:SelectTab(1)
