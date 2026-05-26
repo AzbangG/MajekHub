@@ -1,0 +1,622 @@
+-- Murder Mystery ESP Script
+-- UI Library: deividcomsono/Obsidian
+-- Deteksi Murder (knife), Sheriff/Hero (gun), GunDrop (map), dan Innocent (player biasa)
+
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library      = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager  = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+-- ─────────────────────────────────────────────
+--  Services
+-- ─────────────────────────────────────────────
+local Players     = game:GetService("Players")
+local RunService  = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ─────────────────────────────────────────────
+--  Window Setup
+-- ─────────────────────────────────────────────
+local Window = Library:CreateWindow({
+    Title            = "Murder ESP",
+    Footer           = "Murder Mystery Util",
+    Icon             = 95816097006870,
+    NotifySide       = "Right",
+    ShowCustomCursor = true,
+    Center           = true,
+    AutoShow         = true,
+})
+
+local Tabs = {
+    Main            = Window:AddTab("Main", "eye"),
+    ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
+}
+
+-- ─────────────────────────────────────────────
+--  ESP Config Defaults
+-- ─────────────────────────────────────────────
+local ESPConfig = {
+    Murder = {
+        Color    = Color3.fromRGB(255, 50, 50),
+        Enabled  = false,
+        Keywords = { "knife", "blade", "murder" },
+    },
+    Sheriff = {
+        Color    = Color3.fromRGB(80, 180, 255),
+        Enabled  = false,
+        Keywords = { "gun", "sheriff", "pistol", "revolver", "hero" },
+    },
+    Innocent = {
+        Color   = Color3.fromRGB(100, 220, 100),
+        Enabled = false,
+        -- Innocent = player yang TIDAK punya knife maupun gun
+    },
+    GunDrop = {
+        Color   = Color3.fromRGB(255, 220, 0),
+        Enabled = false,
+    },
+}
+
+-- ─────────────────────────────────────────────
+--  Helper: Check if a player holds a role tool
+--  Searches both Backpack AND Character children
+-- ─────────────────────────────────────────────
+local function hasToolMatching(player, keywords)
+    local character = player.Character
+    local backpack  = player:FindFirstChildOfClass("Backpack")
+
+    local function checkContainer(container)
+        if not container then return false end
+        for _, item in ipairs(container:GetChildren()) do
+            if item:IsA("Tool") then
+                local name = item.Name:lower()
+                for _, kw in ipairs(keywords) do
+                    if name:find(kw:lower(), 1, true) then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    return checkContainer(character) or checkContainer(backpack)
+end
+
+-- ─────────────────────────────────────────────
+--  ESP Highlight Management
+-- ─────────────────────────────────────────────
+local espHighlights = {}  -- [player] = Highlight
+
+local function removeESP(player)
+    if espHighlights[player] then
+        espHighlights[player]:Destroy()
+        espHighlights[player] = nil
+    end
+end
+
+local function applyESP(player, color)
+    if player == LocalPlayer then return end
+    local character = player.Character
+    if not character then return end
+
+    local hl = espHighlights[player]
+    if not hl or not hl.Parent then
+        hl = Instance.new("Highlight")
+        hl.Name    = "MurderESP_Highlight"
+        hl.Adornee = character
+        hl.Parent  = character
+        espHighlights[player] = hl
+    end
+
+    hl.FillColor           = color
+    hl.OutlineColor        = color
+    hl.FillTransparency    = 0.55
+    hl.OutlineTransparency = 0
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+end
+
+-- ─────────────────────────────────────────────
+--  BillboardGui Name Tag
+-- ─────────────────────────────────────────────
+local espBillboards = {}  -- [player] = BillboardGui
+
+local function removeBillboard(player)
+    if espBillboards[player] then
+        espBillboards[player]:Destroy()
+        espBillboards[player] = nil
+    end
+end
+
+local function applyBillboard(player, label, color)
+    if player == LocalPlayer then return end
+    local character = player.Character
+    if not character then return end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local bb = espBillboards[player]
+    if not bb or not bb.Parent then
+        bb = Instance.new("BillboardGui")
+        bb.Name         = "MurderESP_Billboard"
+        bb.Adornee      = hrp
+        bb.Size         = UDim2.new(0, 130, 0, 40)
+        bb.StudsOffset  = Vector3.new(0, 3.5, 0)
+        bb.AlwaysOnTop  = true
+        bb.ResetOnSpawn = false
+        bb.Parent       = character
+
+        local frame = Instance.new("Frame", bb)
+        frame.Size                   = UDim2.fromScale(1, 1)
+        frame.BackgroundColor3       = Color3.new(0, 0, 0)
+        frame.BackgroundTransparency = 0.5
+        frame.BorderSizePixel        = 0
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+
+        local txt = Instance.new("TextLabel", frame)
+        txt.Name                    = "RoleLabel"
+        txt.Size                    = UDim2.fromScale(1, 1)
+        txt.BackgroundTransparency  = 1
+        txt.Font                    = Enum.Font.GothamBold
+        txt.TextScaled              = true
+        txt.TextStrokeTransparency  = 0.4
+
+        espBillboards[player] = bb
+    end
+
+    local frame = bb:FindFirstChildOfClass("Frame")
+    if frame then
+        local txt = frame:FindFirstChild("RoleLabel")
+        if txt then
+            txt.Text       = string.format("[%s] %s", label, player.DisplayName)
+            txt.TextColor3 = color
+        end
+    end
+end
+
+-- ─────────────────────────────────────────────
+--  Core ESP Update Loop
+--  Priority: Murder > Sheriff > Innocent
+--  Innocent = player yang tidak punya knife/gun
+-- ─────────────────────────────────────────────
+local function updateESP()
+    local anyEnabled = ESPConfig.Murder.Enabled
+        or ESPConfig.Sheriff.Enabled
+        or ESPConfig.Innocent.Enabled
+
+    if not anyEnabled then return end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        if not player.Character then continue end
+
+        local isMurder  = hasToolMatching(player, ESPConfig.Murder.Keywords)
+        local isSheriff = hasToolMatching(player, ESPConfig.Sheriff.Keywords)
+
+        if ESPConfig.Murder.Enabled and isMurder then
+            applyESP(player, ESPConfig.Murder.Color)
+            applyBillboard(player, "MURDER", ESPConfig.Murder.Color)
+
+        elseif ESPConfig.Sheriff.Enabled and isSheriff then
+            applyESP(player, ESPConfig.Sheriff.Color)
+            applyBillboard(player, "SHERIFF", ESPConfig.Sheriff.Color)
+
+        elseif ESPConfig.Innocent.Enabled and (not isMurder) and (not isSheriff) then
+            -- Innocent: bukan murder dan bukan sheriff
+            applyESP(player, ESPConfig.Innocent.Color)
+            applyBillboard(player, "INNOCENT", ESPConfig.Innocent.Color)
+
+        else
+            -- Toggle yang relevan tidak aktif untuk role player ini → hapus
+            removeESP(player)
+            removeBillboard(player)
+        end
+    end
+end
+
+-- Bersihkan saat player leave / respawn
+Players.PlayerRemoving:Connect(function(player)
+    removeESP(player)
+    removeBillboard(player)
+end)
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterRemoving:Connect(function()
+        removeESP(player)
+        removeBillboard(player)
+    end)
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        player.CharacterRemoving:Connect(function()
+            removeESP(player)
+            removeBillboard(player)
+        end)
+    end
+end
+
+-- Heartbeat loop
+RunService.Heartbeat:Connect(updateESP)
+
+-- ─────────────────────────────────────────────
+--  GunDrop ESP
+--  Deteksi: Model di Workspace dengan Attribute
+--  "MapID" → pantau ChildAdded "GunDrop"
+-- ─────────────────────────────────────────────
+local gunDropHighlights = {}  -- [instance] = Highlight
+local gunDropBillboards = {}  -- [instance] = BillboardGui
+local mapConnections    = {}  -- [model]    = RBXScriptConnection
+
+local function removeGunDropESP(obj)
+    if gunDropHighlights[obj] then
+        gunDropHighlights[obj]:Destroy()
+        gunDropHighlights[obj] = nil
+    end
+    if gunDropBillboards[obj] then
+        gunDropBillboards[obj]:Destroy()
+        gunDropBillboards[obj] = nil
+    end
+end
+
+local function applyGunDropESP(obj)
+    if not ESPConfig.GunDrop.Enabled then return end
+    if not obj or not obj.Parent then return end
+
+    -- Highlight
+    local hl = gunDropHighlights[obj]
+    if not hl or not hl.Parent then
+        hl = Instance.new("Highlight")
+        hl.Name                = "GunDropESP_Highlight"
+        hl.Adornee             = obj
+        hl.FillColor           = ESPConfig.GunDrop.Color
+        hl.OutlineColor        = ESPConfig.GunDrop.Color
+        hl.FillTransparency    = 0.4
+        hl.OutlineTransparency = 0
+        hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent              = obj
+        gunDropHighlights[obj] = hl
+    else
+        hl.FillColor    = ESPConfig.GunDrop.Color
+        hl.OutlineColor = ESPConfig.GunDrop.Color
+    end
+
+    -- BillboardGui
+    local anchor = obj:IsA("BasePart") and obj
+        or obj:FindFirstChildWhichIsA("BasePart", true)
+    if not anchor then return end
+
+    local bb = gunDropBillboards[obj]
+    if not bb or not bb.Parent then
+        bb = Instance.new("BillboardGui")
+        bb.Name         = "GunDropESP_Billboard"
+        bb.Adornee      = anchor
+        bb.Size         = UDim2.new(0, 110, 0, 36)
+        bb.StudsOffset  = Vector3.new(0, 3, 0)
+        bb.AlwaysOnTop  = true
+        bb.ResetOnSpawn = false
+        bb.Parent       = obj
+
+        local frame = Instance.new("Frame", bb)
+        frame.Size                   = UDim2.fromScale(1, 1)
+        frame.BackgroundColor3       = Color3.new(0, 0, 0)
+        frame.BackgroundTransparency = 0.45
+        frame.BorderSizePixel        = 0
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+
+        local txt = Instance.new("TextLabel", frame)
+        txt.Name                   = "DropLabel"
+        txt.Size                   = UDim2.fromScale(1, 1)
+        txt.BackgroundTransparency = 1
+        txt.Font                   = Enum.Font.GothamBold
+        txt.Text                   = "🔫 GUN DROP"
+        txt.TextColor3             = ESPConfig.GunDrop.Color
+        txt.TextScaled             = true
+        txt.TextStrokeTransparency = 0.4
+
+        gunDropBillboards[obj] = bb
+    else
+        local frame = bb:FindFirstChildOfClass("Frame")
+        if frame then
+            local txt = frame:FindFirstChild("DropLabel")
+            if txt then txt.TextColor3 = ESPConfig.GunDrop.Color end
+        end
+    end
+end
+
+local function scanMapForGunDrops(mapModel)
+    for _, child in ipairs(mapModel:GetChildren()) do
+        if child.Name == "GunDrop" then
+            applyGunDropESP(child)
+            child.AncestryChanged:Connect(function(_, newParent)
+                if not newParent then removeGunDropESP(child) end
+            end)
+        end
+    end
+end
+
+local function hookMapModel(mapModel)
+    if mapConnections[mapModel] then return end
+
+    scanMapForGunDrops(mapModel)
+
+    mapConnections[mapModel] = mapModel.ChildAdded:Connect(function(child)
+        if child.Name == "GunDrop" then
+            task.defer(function()
+                applyGunDropESP(child)
+                child.AncestryChanged:Connect(function(_, newParent)
+                    if not newParent then removeGunDropESP(child) end
+                end)
+            end)
+        end
+    end)
+
+    mapModel.AncestryChanged:Connect(function(_, newParent)
+        if not newParent then
+            if mapConnections[mapModel] then
+                mapConnections[mapModel]:Disconnect()
+                mapConnections[mapModel] = nil
+            end
+            for _, child in ipairs(mapModel:GetChildren()) do
+                removeGunDropESP(child)
+            end
+        end
+    end)
+end
+
+local function findAndHookMaps()
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:IsA("Model") and obj:GetAttribute("MapID") ~= nil then
+            hookMapModel(obj)
+        end
+    end
+end
+
+workspace.ChildAdded:Connect(function(obj)
+    if obj:IsA("Model") and obj:GetAttribute("MapID") ~= nil then
+        task.defer(function() hookMapModel(obj) end)
+    end
+end)
+
+findAndHookMaps()
+
+local function clearAllGunDropESP()
+    for obj in pairs(gunDropHighlights) do
+        removeGunDropESP(obj)
+    end
+end
+
+local function refreshGunDropColors()
+    for obj, hl in pairs(gunDropHighlights) do
+        if hl and hl.Parent then
+            hl.FillColor    = ESPConfig.GunDrop.Color
+            hl.OutlineColor = ESPConfig.GunDrop.Color
+        end
+        local bb = gunDropBillboards[obj]
+        if bb and bb.Parent then
+            local frame = bb:FindFirstChildOfClass("Frame")
+            if frame then
+                local txt = frame:FindFirstChild("DropLabel")
+                if txt then txt.TextColor3 = ESPConfig.GunDrop.Color end
+            end
+        end
+    end
+end
+
+-- ─────────────────────────────────────────────
+--  UI ─ Main Tab
+--  Kiri  : Murder | Kanan : Sheriff
+--  Kiri  : Innocent | Kanan : Gun Drop
+-- ─────────────────────────────────────────────
+local MurderGroup   = Tabs.Main:AddLeftGroupbox("Murder ESP 🔪", "skull")
+local SheriffGroup  = Tabs.Main:AddRightGroupbox("Sheriff / Hero ESP 🔫", "shield")
+local InnocentGroup = Tabs.Main:AddLeftGroupbox("Innocent ESP 🧍", "user")
+local GunDropGroup  = Tabs.Main:AddRightGroupbox("Gun Drop ESP 🗺️", "map-pin")
+
+-- ── Murder ────────────────────────────────────
+MurderGroup:AddToggle("MurderESP", {
+    Text    = "Enable Murder ESP",
+    Default = false,
+    Tooltip = "Highlight player yang membawa knife",
+}):AddColorPicker("MurderColor", {
+    Default      = ESPConfig.Murder.Color,
+    Title        = "Murder Highlight Color",
+    Transparency = 0,
+})
+
+Toggles.MurderESP:OnChanged(function()
+    ESPConfig.Murder.Enabled = Toggles.MurderESP.Value
+end)
+
+Options.MurderColor:OnChanged(function()
+    ESPConfig.Murder.Color = Options.MurderColor.Value
+end)
+
+MurderGroup:AddLabel("Deteksi tool: knife, blade, murder", true)
+MurderGroup:AddDivider()
+MurderGroup:AddLabel("💡 Cek Backpack + Character\nsetiap player secara real-time", true)
+
+-- ── Sheriff ───────────────────────────────────
+SheriffGroup:AddToggle("SheriffESP", {
+    Text    = "Enable Sheriff / Hero ESP",
+    Default = false,
+    Tooltip = "Highlight player yang membawa gun",
+}):AddColorPicker("SheriffColor", {
+    Default      = ESPConfig.Sheriff.Color,
+    Title        = "Sheriff / Hero Highlight Color",
+    Transparency = 0,
+})
+
+Toggles.SheriffESP:OnChanged(function()
+    ESPConfig.Sheriff.Enabled = Toggles.SheriffESP.Value
+end)
+
+Options.SheriffColor:OnChanged(function()
+    ESPConfig.Sheriff.Color = Options.SheriffColor.Value
+end)
+
+SheriffGroup:AddLabel("Deteksi tool: gun, sheriff,\npistol, revolver, hero", true)
+SheriffGroup:AddDivider()
+SheriffGroup:AddLabel("🔵 Murder memiliki prioritas\ntampil jika kedua toggle aktif", true)
+
+-- ── Innocent ──────────────────────────────────
+InnocentGroup:AddToggle("InnocentESP", {
+    Text    = "Enable Innocent ESP",
+    Default = false,
+    Tooltip = "Highlight player yang TIDAK membawa knife maupun gun (innocent/warga biasa)",
+}):AddColorPicker("InnocentColor", {
+    Default      = ESPConfig.Innocent.Color,
+    Title        = "Innocent Highlight Color",
+    Transparency = 0,
+})
+
+Toggles.InnocentESP:OnChanged(function()
+    ESPConfig.Innocent.Enabled = Toggles.InnocentESP.Value
+    if not Toggles.InnocentESP.Value then
+        -- Bersihkan ESP player yang hanya ter-tag sebagai innocent
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local isMurder  = hasToolMatching(player, ESPConfig.Murder.Keywords)
+                local isSheriff = hasToolMatching(player, ESPConfig.Sheriff.Keywords)
+                if not isMurder and not isSheriff then
+                    removeESP(player)
+                    removeBillboard(player)
+                end
+            end
+        end
+    end
+end)
+
+Options.InnocentColor:OnChanged(function()
+    ESPConfig.Innocent.Color = Options.InnocentColor.Value
+end)
+
+InnocentGroup:AddLabel("Player tanpa knife & gun\ndianggap sebagai Innocent", true)
+InnocentGroup:AddDivider()
+InnocentGroup:AddLabel("🟢 Berguna untuk cari warga\ndi sekitar murder", true)
+
+-- ── Gun Drop ──────────────────────────────────
+GunDropGroup:AddToggle("GunDropESP", {
+    Text    = "Enable Gun Drop ESP",
+    Default = false,
+    Tooltip = "Highlight gun yang ter-drop di map (deteksi via Attribute MapID → ChildAdded GunDrop)",
+    Callback = function(val)
+        ESPConfig.GunDrop.Enabled = val
+        if val then
+            findAndHookMaps()
+            for _, mapModel in ipairs(workspace:GetChildren()) do
+                if mapModel:IsA("Model") and mapModel:GetAttribute("MapID") ~= nil then
+                    for _, child in ipairs(mapModel:GetChildren()) do
+                        if child.Name == "GunDrop" then
+                            applyGunDropESP(child)
+                        end
+                    end
+                end
+            end
+        else
+            clearAllGunDropESP()
+        end
+    end,
+}):AddColorPicker("GunDropColor", {
+    Default      = ESPConfig.GunDrop.Color,
+    Title        = "Gun Drop Highlight Color",
+    Transparency = 0,
+    Callback     = function(val)
+        ESPConfig.GunDrop.Color = val
+        refreshGunDropColors()
+    end,
+})
+
+Toggles.GunDropESP:OnChanged(function()
+    ESPConfig.GunDrop.Enabled = Toggles.GunDropESP.Value
+end)
+
+Options.GunDropColor:OnChanged(function()
+    ESPConfig.GunDrop.Color = Options.GunDropColor.Value
+    refreshGunDropColors()
+end)
+
+GunDropGroup:AddLabel("Deteksi: Workspace Model\ndengan Attribute \"MapID\"\n→ ChildAdded bernama \"GunDrop\"", true)
+GunDropGroup:AddDivider()
+GunDropGroup:AddLabel("⚡ Event-driven: ESP muncul\notomatis saat gun di-drop", true)
+
+-- ─────────────────────────────────────────────
+--  UI Settings Tab
+-- ─────────────────────────────────────────────
+local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu", "wrench")
+
+MenuGroup:AddToggle("KeybindMenuOpen", {
+    Default  = Library.KeybindFrame.Visible,
+    Text     = "Open Keybind Menu",
+    Callback = function(value)
+        Library.KeybindFrame.Visible = value
+    end,
+})
+
+MenuGroup:AddToggle("ShowCustomCursor", {
+    Text     = "Custom Cursor",
+    Default  = true,
+    Callback = function(Value)
+        Library.ShowCustomCursor = Value
+    end,
+})
+
+MenuGroup:AddDropdown("NotificationSide", {
+    Values   = { "Left", "Right" },
+    Default  = "Right",
+    Text     = "Notification Side",
+    Callback = function(Value)
+        Library:SetNotifySide(Value)
+    end,
+})
+
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu bind")
+    :AddKeyPicker("MenuKeybind", { Default = "LeftControl", NoUI = true, Text = "Menu keybind" })
+
+MenuGroup:AddButton({
+    Text = "Unload Script",
+    Func = function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            removeESP(player)
+            removeBillboard(player)
+        end
+        clearAllGunDropESP()
+        for _, conn in pairs(mapConnections) do
+            conn:Disconnect()
+        end
+        Library:Unload()
+    end,
+    Tooltip = "Matikan script dan hapus semua ESP",
+})
+
+Library.ToggleKeybind = Options.MenuKeybind
+
+-- ─────────────────────────────────────────────
+--  ThemeManager & SaveManager
+-- ─────────────────────────────────────────────
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+
+ThemeManager:SetFolder("MurderESP")
+SaveManager:SetFolder("MurderESP/configs")
+
+SaveManager:BuildConfigSection(Tabs["UI Settings"])
+ThemeManager:ApplyToTab(Tabs["UI Settings"])
+
+SaveManager:LoadAutoloadConfig()
+
+-- ─────────────────────────────────────────────
+--  Startup Notification
+-- ─────────────────────────────────────────────
+Library:Notify({
+    Title       = "Murder ESP Loaded",
+    Description = "Murder | Sheriff | Innocent | Gun Drop\nToggle di tab Main.",
+    Time        = 5,
+})
