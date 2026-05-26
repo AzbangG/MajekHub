@@ -542,6 +542,170 @@ end)
 GunDropGroup:AddLabel("Deteksi: Workspace Model\ndengan Attribute \"MapID\"\n→ ChildAdded bernama \"GunDrop\"", true)
 GunDropGroup:AddDivider()
 GunDropGroup:AddLabel("⚡ Event-driven: ESP muncul\notomatis saat gun di-drop", true)
+GunDropGroup:AddDivider()
+
+-- ── Bring Gun ─────────────────────────────────
+-- Cari GunDrop pertama yang ada di map, lalu
+-- pindahkan (CFrame) ke posisi karakter player.
+-- Dilakukan dalam loop singkat agar gun benar-
+-- benar melekat sebelum physics memindahkannya.
+GunDropGroup:AddButton({
+    Text       = "Bring Gun to Me",
+    Tooltip    = "Teleport GunDrop terdekat ke posisi karakter kamu",
+    DoubleClick = false,
+    Func = function()
+        local character = LocalPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            Library:Notify({
+                Title       = "Bring Gun",
+                Description = "Karakter tidak ditemukan!",
+                Time        = 3,
+            })
+            return
+        end
+
+        -- Cari GunDrop di semua map model
+        local found = nil
+        local foundDist = math.huge
+
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj:GetAttribute("MapID") ~= nil then
+                for _, child in ipairs(obj:GetChildren()) do
+                    if child.Name == "GunDrop" then
+                        -- Prioritaskan yang paling dekat
+                        local anchor = child:IsA("BasePart") and child
+                            or child:FindFirstChildWhichIsA("BasePart", true)
+                        if anchor then
+                            local dist = (hrp.Position - anchor.Position).Magnitude
+                            if dist < foundDist then
+                                foundDist = dist
+                                found     = child
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if not found then
+            Library:Notify({
+                Title       = "Bring Gun",
+                Description = "Tidak ada GunDrop yang ditemukan di map!",
+                Time        = 3,
+            })
+            return
+        end
+
+        -- Posisi tujuan: sedikit di depan HRP agar langsung bisa diambil
+        local targetCFrame = hrp.CFrame * CFrame.new(0, 0, -3)
+
+        -- Pindahkan semua BasePart di dalam GunDrop
+        local parts = {}
+        if found:IsA("BasePart") then
+            parts = { found }
+        else
+            for _, v in ipairs(found:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    table.insert(parts, v)
+                end
+            end
+        end
+
+        -- Loop selama 0.15 detik untuk melawan server correction
+        local elapsed = 0
+        local conn
+        conn = RunService.Heartbeat:Connect(function(dt)
+            elapsed = elapsed + dt
+            if elapsed > 0.15 then
+                conn:Disconnect()
+                return
+            end
+            for _, part in ipairs(parts) do
+                if part and part.Parent then
+                    part.CFrame = targetCFrame
+                end
+            end
+        end)
+
+        Library:Notify({
+            Title       = "Bring Gun",
+            Description = string.format("GunDrop dibawa ke posisimu!\n(%.1f studs jauhnya)", foundDist),
+            Time        = 3,
+        })
+    end,
+})
+
+GunDropGroup:AddButton({
+    Text        = "Bring ALL Guns",
+    Tooltip     = "Teleport SEMUA GunDrop di map ke posisi kamu (berguna jika ada lebih dari 1)",
+    DoubleClick = true,   -- Double-click agar tidak tidak sengaja kepencet
+    Func = function()
+        local character = LocalPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            Library:Notify({
+                Title       = "Bring All Guns",
+                Description = "Karakter tidak ditemukan!",
+                Time        = 3,
+            })
+            return
+        end
+
+        local allParts = {}
+        local count    = 0
+
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj:GetAttribute("MapID") ~= nil then
+                for _, child in ipairs(obj:GetChildren()) do
+                    if child.Name == "GunDrop" then
+                        count = count + 1
+                        if child:IsA("BasePart") then
+                            table.insert(allParts, child)
+                        else
+                            for _, v in ipairs(child:GetDescendants()) do
+                                if v:IsA("BasePart") then
+                                    table.insert(allParts, v)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if count == 0 then
+            Library:Notify({
+                Title       = "Bring All Guns",
+                Description = "Tidak ada GunDrop di map!",
+                Time        = 3,
+            })
+            return
+        end
+
+        local targetCFrame = hrp.CFrame * CFrame.new(0, 0, -3)
+        local elapsed = 0
+        local conn
+        conn = RunService.Heartbeat:Connect(function(dt)
+            elapsed = elapsed + dt
+            if elapsed > 0.15 then
+                conn:Disconnect()
+                return
+            end
+            for _, part in ipairs(allParts) do
+                if part and part.Parent then
+                    part.CFrame = targetCFrame
+                end
+            end
+        end)
+
+        Library:Notify({
+            Title       = "Bring All Guns",
+            Description = string.format("%d GunDrop dibawa ke posisimu!", count),
+            Time        = 3,
+        })
+    end,
+})
 
 -- ─────────────────────────────────────────────
 --  UI Settings Tab
